@@ -14,6 +14,7 @@ workflows:
           xcodebuild -version
           java -version
           chmod +x ./gradlew
+          touch local.properties
 
       - name: Archive Nuvio for physical iOS devices
         script: |
