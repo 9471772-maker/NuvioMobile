@@ -14,7 +14,11 @@ workflows:
           xcodebuild -version
           java -version
           echo "========== MAC MEMORY =========="
-          sysctl -n hw.memsize
+          system_profiler SPHardwareDataType | grep -E "Model Name|Model Identifier|Memory:"
+          echo "========== MAC RAM BYTES =========="
+          sysctl hw.memsize
+          echo "========== FREE DISK =========="
+          df -h "$CM_BUILD_DIR"
           chmod +x ./gradlew
           touch local.properties
 
