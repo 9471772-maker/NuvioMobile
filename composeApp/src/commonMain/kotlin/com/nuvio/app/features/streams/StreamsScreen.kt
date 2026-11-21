@@ -72,6 +72,7 @@ import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.ServerVideoDownloadDialog
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -164,6 +165,7 @@ fun StreamsScreen(
     val streamLinkCopiedText = stringResource(Res.string.streams_link_copied)
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
+    var serverDownloadTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
     val downloadScope = rememberCoroutineScope()
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     val episodeProgress = watchProgressUiState.progressForVideo(
@@ -395,6 +397,15 @@ fun StreamsScreen(
                     NuvioToastController.show(result.toastMessage())
                 }
             },
+            onServerDownload = { stream ->
+                val serverUrl = stream.playableDirectUrl
+                    ?: stream.youTubeIdToResolve?.let { "https://www.youtube.com/watch?v=$it" }
+                if (serverUrl.isNullOrBlank()) {
+                    NuvioToastController.show(noDirectStreamLinkText)
+                } else {
+                    serverDownloadTarget = stream
+                }
+            },
             onOpen = { stream, openExternally ->
                 onStreamActionOpen(
                     stream,
@@ -404,6 +415,29 @@ fun StreamsScreen(
                 )
             },
         )
+
+        serverDownloadTarget?.let { stream ->
+            val serverUrl = stream.playableDirectUrl
+                ?: stream.youTubeIdToResolve?.let { "https://www.youtube.com/watch?v=$it" }
+            if (!serverUrl.isNullOrBlank()) {
+                ServerVideoDownloadDialog(
+                    url = serverUrl,
+                    contentType = type,
+                    videoId = videoId,
+                    parentMetaId = parentMetaId,
+                    parentMetaType = parentMetaType,
+                    title = title,
+                    logo = logo,
+                    poster = poster,
+                    background = background,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    episodeTitle = episodeTitle,
+                    episodeThumbnail = episodeThumbnail,
+                    onDismiss = { serverDownloadTarget = null },
+                )
+            }
+        }
     }
 }
 
@@ -969,6 +1003,7 @@ private fun StreamActionsSheet(
     onDismiss: () -> Unit,
     onCopyLink: (StreamItem) -> Unit,
     onDownload: (StreamItem) -> Unit,
+    onServerDownload: (StreamItem) -> Unit,
     onOpen: (StreamItem, openExternally: Boolean) -> Unit,
 ) {
     if (stream == null) return
@@ -1038,6 +1073,16 @@ private fun StreamActionsSheet(
                 ),
                 onClick = {
                     onOpen(stream, !externalPlayerEnabled)
+                    coroutineScope.launch {
+                        dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                    }
+                },
+            )
+            NuvioBottomSheetActionRow(
+                icon = Icons.Rounded.Download,
+                title = "Server Download",
+                onClick = {
+                    onServerDownload(stream)
                     coroutineScope.launch {
                         dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                     }

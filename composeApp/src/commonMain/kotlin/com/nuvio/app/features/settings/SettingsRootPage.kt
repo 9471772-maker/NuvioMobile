@@ -87,6 +87,13 @@ internal fun LazyListScope.settingsRootContent(
                         )
                         SettingsGroupDivider(isTablet = isTablet)
                         SettingsPageRow(
+                            page = SettingsPage.VideoDownloader,
+                            description = Res.string.compose_settings_root_video_downloader_description,
+                            isTablet = isTablet,
+                            onPageClick = onPageClick,
+                        )
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsPageRow(
                             page = SettingsPage.TraktAuthentication,
                             description = Res.string.compose_settings_root_tracking_description,
                             isTablet = isTablet,

@@ -206,6 +206,11 @@ internal enum class SettingsPage(
         category = SettingsCategory.Services,
         parentPage = Root,
     ),
+    VideoDownloader(
+        titleRes = Res.string.compose_settings_page_video_downloader,
+        category = SettingsCategory.Services,
+        parentPage = Root,
+    ),
     TmdbEnrichment(
         titleRes = Res.string.compose_settings_page_tmdb_enrichment,
         category = SettingsCategory.Services,
@@ -263,6 +268,7 @@ internal val SettingsPage.icon: ImageVector
         SettingsPage.Homescreen -> Icons.Default.Dashboard
         SettingsPage.MetaScreen -> Icons.Default.Description
         SettingsPage.Integrations -> Icons.Default.Link
+        SettingsPage.VideoDownloader -> Icons.Default.Link
         SettingsPage.TmdbEnrichment -> Icons.Default.Link
         SettingsPage.MdbListRatings -> Icons.Default.Link
         SettingsPage.Debrid -> Icons.Default.Link

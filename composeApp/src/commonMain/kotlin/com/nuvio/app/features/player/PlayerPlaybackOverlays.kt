@@ -3,6 +3,8 @@ package com.nuvio.app.features.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -61,6 +63,8 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onDismissNextEpisode: () -> Unit,
     errorMessage: String?,
     onDismissError: () -> Unit,
+    showServerDownloadButton: Boolean,
+    onServerDownload: () -> Unit,
 ) {
     AnimatedVisibility(
         visible = playerControlsLocked && lockedOverlayVisible,
@@ -112,6 +116,20 @@ internal fun BoxScope.PlayerPlaybackOverlays(
         horizontalSafePadding = horizontalSafePadding,
         horizontalPadding = metrics.horizontalPadding,
     )
+
+    if (showServerDownloadButton && !playerControlsLocked) {
+        androidx.compose.material3.IconButton(
+            onClick = onServerDownload,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp),
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector = Icons.Rounded.Download,
+                contentDescription = "Server Download",
+            )
+        }
+    }
 
     if (!playerControlsLocked) {
         SkipIntroButton(

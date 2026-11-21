@@ -1,0 +1,61 @@
+workflows:
+  nuvio-ios-unsigned:
+    name: Nuvio iOS IPA (unsigned for KSign)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+
+    scripts:
+      - name: Check build environment
+        script: |
+          set -e
+          xcodebuild -version
+          java -version
+          chmod +x ./gradlew
+
+      - name: Archive Nuvio for physical iOS devices
+        script: |
+          set -e
+          export GRADLE_OPTS="-Xmx4g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g"
+          export KOTLIN_DAEMON_JVMARGS="-Xmx2g"
+
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/build/Nuvio.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package unsigned IPA for KSign
+        script: |
+          set -e
+          APP_PATH="$CM_BUILD_DIR/build/Nuvio.xcarchive/Products/Applications/Nuvio.app"
+          IPA_DIR="$CM_BUILD_DIR/build/ios/ipa"
+          TEMP_DIR="$CM_BUILD_DIR/build/ipa-package"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Nuvio.app was not found in the Xcode archive."
+            find "$CM_BUILD_DIR/build/Nuvio.xcarchive/Products" -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          rm -rf "$TEMP_DIR"
+          mkdir -p "$TEMP_DIR/Payload" "$IPA_DIR"
+          cp -R "$APP_PATH" "$TEMP_DIR/Payload/"
+          cd "$TEMP_DIR"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload \
+            "$IPA_DIR/Nuvio-unsigned.ipa"
+
+          echo "Created unsigned IPA:"
+          ls -lh "$IPA_DIR/Nuvio-unsigned.ipa"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/Nuvio.xcarchive
+      - /tmp/xcodebuild_logs/*.log

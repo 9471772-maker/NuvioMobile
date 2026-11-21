@@ -760,6 +760,9 @@ private fun MobileSettingsScreen(
                     onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                     onDebridClick = { onPageChange(SettingsPage.Debrid) },
                 )
+                SettingsPage.VideoDownloader -> videoDownloaderSettingsContent(
+                    isTablet = false,
+                )
                 SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
                     isTablet = false,
                     settings = tmdbSettings,
@@ -1161,6 +1164,9 @@ private fun TabletSettingsScreen(
                         onTmdbClick = { onPageChange(SettingsPage.TmdbEnrichment) },
                         onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                         onDebridClick = { onPageChange(SettingsPage.Debrid) },
+                    )
+                    SettingsPage.VideoDownloader -> videoDownloaderSettingsContent(
+                        isTablet = true,
                     )
                     SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
                         isTablet = true,

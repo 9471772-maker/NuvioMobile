@@ -214,6 +214,88 @@ object DownloadsRepository {
         }
     }
 
+    fun enqueueServerFile(
+        contentType: String,
+        videoId: String,
+        parentMetaId: String,
+        parentMetaType: String,
+        title: String,
+        logo: String?,
+        poster: String?,
+        background: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        episodeTitle: String?,
+        episodeThumbnail: String?,
+        sourceUrl: String,
+        token: String,
+        qualityLabel: String,
+        audio: Boolean,
+    ): DownloadEnqueueResult {
+        ensureLoaded()
+
+        if (sourceUrl.isBlank() || token.isBlank()) {
+            return DownloadEnqueueResult.MissingUrl
+        }
+        if (!sourceUrl.isSupportedDownloadUrl()) {
+            return DownloadEnqueueResult.UnsupportedFormat
+        }
+
+        val now = DownloadsClock.nowEpochMs()
+        val downloadId = nextDownloadId(now)
+        val fileName = buildFileName(
+            title = title,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            fallbackTitle = title,
+            sourceUrl = sourceUrl,
+            downloadId = downloadId,
+            extensionOverride = if (audio) "mp3" else "mp4",
+        )
+
+        val item = DownloadItem(
+            id = downloadId,
+            contentType = contentType,
+            parentMetaId = parentMetaId,
+            parentMetaType = parentMetaType,
+            videoId = videoId,
+            title = title,
+            logo = logo,
+            poster = poster,
+            background = background,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            episodeThumbnail = episodeThumbnail,
+            streamTitle = "Server Download",
+            streamSubtitle = qualityLabel,
+            providerName = "Video Downloader Server",
+            providerAddonId = null,
+            sourceUrl = sourceUrl,
+            sourceHeaders = mapOf("X-Token" to token),
+            sourceResponseHeaders = emptyMap(),
+            subtitleRequests = emptyList(),
+            sourceSubtitles = emptyList(),
+            localFileUri = null,
+            fileName = fileName,
+            status = DownloadStatus.Downloading,
+            downloadedBytes = 0L,
+            totalBytes = null,
+            errorMessage = null,
+            createdAtEpochMs = now,
+            updatedAtEpochMs = now,
+        )
+
+        val currentItems = _uiState.value.items.toMutableList()
+        currentItems.add(0, item)
+        publish(currentItems)
+        persist()
+        startDownload(item)
+
+        return DownloadEnqueueResult.Started
+    }
+
     fun pauseDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
@@ -534,6 +616,7 @@ private fun buildFileName(
     fallbackTitle: String,
     sourceUrl: String,
     downloadId: String,
+    extensionOverride: String? = null,
 ): String {
     val baseTitle = if (seasonNumber != null && episodeNumber != null) {
         buildString {
@@ -551,7 +634,9 @@ private fun buildFileName(
         title.ifBlank { fallbackTitle }
     }
 
-    val extension = sourceUrl.fileExtensionFromUrl()
+    val extension = extensionOverride?.trim()?.removePrefix(".")
+        ?.takeIf { it.isNotBlank() }
+        ?: sourceUrl.fileExtensionFromUrl()
     return buildString {
         append(baseTitle.sanitizeFileName().ifBlank { "download" }.take(92))
         append('_')

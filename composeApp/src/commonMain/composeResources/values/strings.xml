@@ -517,6 +517,12 @@
     <string name="compose_settings_page_debrid">Connected Services</string>
     <string name="compose_settings_page_homescreen">Home Layout</string>
     <string name="compose_settings_page_integrations">Integrations</string>
+    <string name="compose_settings_page_video_downloader">Video Downloader</string>
+    <string name="settings_video_downloader_section_title">VIDEO DOWNLOADER SERVER</string>
+    <string name="settings_video_downloader_server_url">Server URL</string>
+    <string name="settings_video_downloader_server_url_description">Base URL of your video downloader server.</string>
+    <string name="settings_video_downloader_api_token">API Token</string>
+    <string name="settings_video_downloader_api_token_description">Token used to authenticate with your downloader server.</string>
     <string name="compose_settings_page_licenses_attributions">Licenses &amp; Attribution</string>
     <string name="compose_settings_page_mdblist_ratings">MDBList Ratings</string>
     <string name="compose_settings_page_meta_screen">Detail Page</string>
@@ -548,6 +554,7 @@
     <string name="compose_settings_root_downloads_title">Downloads</string>
     <string name="compose_settings_root_general_section">GENERAL</string>
     <string name="compose_settings_root_integrations_description">Manage available integrations</string>
+    <string name="compose_settings_root_video_downloader_description">Configure your personal video downloader server.</string>
     <string name="compose_settings_root_notifications_description">Manage episode release alerts and send a test notification.</string>
     <string name="compose_settings_root_privacy_policy_description">Learn how Nuvio handles your data</string>
     <string name="compose_settings_root_streams_description">Stream result display and badge URL rules.</string>

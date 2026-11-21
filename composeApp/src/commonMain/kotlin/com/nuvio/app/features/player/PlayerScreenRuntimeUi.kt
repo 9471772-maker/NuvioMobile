@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.downloads.ServerVideoDownloadDialog
 import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
@@ -545,8 +546,19 @@ private fun BoxScope.RenderPlaybackOverlays(
     p2pRebufferProgress: Float?,
     folded: Boolean,
 ) {
+    val activeStreamForServerDownload = runtime.activeStream
+    val serverDownloadUrl = activeStreamForServerDownload?.playableDirectUrl
+        ?: activeStreamForServerDownload?.youTubeIdToResolve?.let {
+            "https://www.youtube.com/watch?v=$it"
+        }
+    val showServerDownloadDialog = remember(activeStreamForServerDownload) {
+        mutableStateOf(false)
+    }
+
     runtime.run {
         PlayerPlaybackOverlays(
+            showServerDownloadButton = !serverDownloadUrl.isNullOrBlank(),
+            onServerDownload = { showServerDownloadDialog.value = true },
             playerControlsLocked = playerControlsLocked,
             useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
             lockedOverlayVisible = lockedOverlayVisible && !folded,
@@ -619,6 +631,27 @@ private fun BoxScope.RenderPlaybackOverlays(
                 flushWatchProgress()
                 args.onBack()
             },
+        )
+    }
+
+    val stream = activeStreamForServerDownload
+    val url = serverDownloadUrl
+    if (showServerDownloadDialog.value && stream != null && !url.isNullOrBlank()) {
+        ServerVideoDownloadDialog(
+            url = url,
+            contentType = runtime.contentType ?: runtime.parentMetaType,
+            videoId = runtime.videoId ?: stream.ytId ?: "",
+            parentMetaId = runtime.parentMetaId,
+            parentMetaType = runtime.parentMetaType,
+            title = runtime.title,
+            logo = runtime.logo,
+            poster = runtime.poster,
+            background = runtime.background,
+            seasonNumber = runtime.seasonNumber,
+            episodeNumber = runtime.episodeNumber,
+            episodeTitle = runtime.episodeTitle,
+            episodeThumbnail = runtime.episodeThumbnail,
+            onDismiss = { showServerDownloadDialog.value = false },
         )
     }
 }
