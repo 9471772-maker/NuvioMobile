@@ -13,6 +13,8 @@ workflows:
           set -e
           xcodebuild -version
           java -version
+          echo "========== MAC MEMORY =========="
+          sysctl -n hw.memsize
           chmod +x ./gradlew
           touch local.properties
 
