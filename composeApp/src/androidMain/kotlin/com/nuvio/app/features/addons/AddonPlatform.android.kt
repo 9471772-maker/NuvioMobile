@@ -72,6 +72,16 @@ actual object AddonStorage {
             ?.putString("${addonEnabledStatesKey}_$profileId", payload)
             ?.apply()
     }
+
+    actual fun loadDefaultStreamingAddonsInitialized(profileId: Int): Boolean =
+        preferences?.getBoolean("default_streaming_addons_initialized_$profileId", false) ?: false
+
+    actual fun saveDefaultStreamingAddonsInitialized(profileId: Int, initialized: Boolean) {
+        preferences
+            ?.edit()
+            ?.putBoolean("default_streaming_addons_initialized_$profileId", initialized)
+            ?.apply()
+    }
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {

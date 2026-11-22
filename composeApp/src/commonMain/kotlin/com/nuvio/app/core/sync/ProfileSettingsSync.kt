@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.SupabaseProvider
+import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsStorage
 import com.nuvio.app.features.debrid.DebridSettingsRepository
@@ -267,6 +268,9 @@ object ProfileSettingsSync {
                 continueWatchingSettingsPayload = ContinueWatchingPreferencesStorage.loadPayload().orEmpty().trim(),
                 traktSettingsPayload = TraktSettingsStorage.loadPayload().orEmpty().trim(),
                 traktCommentsSettings = TraktCommentsStorage.exportToSyncPayload(),
+                defaultStreamingAddonsInitialized = AddonRepository.areDefaultStreamingAddonsInitialized(
+                    ProfileRepository.activeProfileId,
+                ),
                 notificationsSettings = NotificationsSettingsPayload(
                     episodeReleaseAlertsEnabled = EpisodeReleaseNotificationsRepository.uiState.value.isEnabled,
                 ),
@@ -275,6 +279,13 @@ object ProfileSettingsSync {
     }
 
     private fun applyRemoteBlob(blob: MobileProfileSettingsBlob) {
+        val profileId = ProfileRepository.activeProfileId
+        val defaultAddonsAlreadyInitialized =
+            AddonRepository.areDefaultStreamingAddonsInitialized(profileId)
+        AddonRepository.setDefaultStreamingAddonsInitialized(
+            profileId,
+            defaultAddonsAlreadyInitialized || blob.features.defaultStreamingAddonsInitialized,
+        )
         ThemeSettingsStorage.replaceFromSyncPayload(blob.features.themeSettings)
         ThemeSettingsRepository.onProfileChanged()
 
@@ -403,6 +414,7 @@ private data class MobileProfileSettingsFeatures(
     @SerialName("trakt_settings_payload") val traktSettingsPayload: String = "",
     @SerialName("trakt_comments_settings") val traktCommentsSettings: JsonObject = JsonObject(emptyMap()),
     @SerialName("notifications_settings") val notificationsSettings: NotificationsSettingsPayload = NotificationsSettingsPayload(),
+    @SerialName("default_streaming_addons_initialized") val defaultStreamingAddonsInitialized: Boolean = false,
 )
 
 @Serializable

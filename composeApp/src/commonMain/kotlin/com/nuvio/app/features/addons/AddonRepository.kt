@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,10 @@ private data class AddonPushItem(
 )
 
 private const val ADDON_PUSH_DEBOUNCE_MS = 500L
+private val DEFAULT_STREAMING_ADDON_MANIFESTS = listOf(
+    "https://watchhub.strem.io/manifest.json",
+    "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
+)
 
 object AddonRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -109,10 +114,10 @@ object AddonRepository {
         _uiState.value = AddonsUiState()
     }
 
-    suspend fun pullFromServer(profileId: Int) {
+    suspend fun pullFromServer(profileId: Int): Boolean {
         currentProfileId = resolveEffectiveProfileId(profileId)
         log.i { "pullFromServer() — profileId=$profileId, initialized=$initialized" }
-        runCatching {
+        return try {
             val rows = SupabaseProvider.client.postgrest
                 .from("addons")
                 .select {
@@ -154,9 +159,109 @@ object AddonRepository {
             }
             initialized = true
             log.i { "pullFromServer() — applied ${urls.size} addons to state" }
-        }.onFailure { e ->
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             log.e(e) { "pullFromServer() — FAILED" }
+            false
         }
+    }
+
+    fun areDefaultStreamingAddonsInitialized(profileId: Int): Boolean =
+        AddonStorage.loadDefaultStreamingAddonsInitialized(resolveEffectiveProfileId(profileId))
+
+    fun setDefaultStreamingAddonsInitialized(profileId: Int, initialized: Boolean) {
+        AddonStorage.saveDefaultStreamingAddonsInitialized(
+            resolveEffectiveProfileId(profileId),
+            initialized,
+        )
+    }
+
+    suspend fun pushPendingChangesNow(profileId: Int): Boolean {
+        val effectiveProfileId = resolveEffectiveProfileId(profileId)
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) {
+            log.w { "Skipping addon upload while using the primary profile's addons" }
+            return false
+        }
+
+        pushJobsByProfile[effectiveProfileId]?.cancelAndJoin()
+
+        val addons = _uiState.value.addons
+            .distinctBy { it.manifestUrl }
+            .mapIndexed { index, addon ->
+                AddonPushItem(
+                    url = addon.manifestUrl,
+                    name = addon.userSetName?.takeIf { it.isNotBlank() } ?: addon.manifest?.name ?: "",
+                    enabled = addon.enabled,
+                    sortOrder = index,
+                )
+            }
+
+        return try {
+            val params = buildJsonObject {
+                put("p_profile_id", effectiveProfileId)
+                put("p_addons", json.encodeToJsonElement(addons))
+                putSyncOriginClientId()
+            }
+            SupabaseProvider.client.postgrest.rpc("sync_push_addons", params)
+            log.i { "Successfully flushed ${addons.size} addons for profile $effectiveProfileId" }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.e(error) { "Failed to flush addons for profile $effectiveProfileId" }
+            false
+        }
+    }
+
+    suspend fun seedDefaultStreamingAddonsIfNeeded(profileId: Int): Boolean {
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) {
+            log.i { "Skipping default addon seeding for a secondary profile sharing primary addons" }
+            return false
+        }
+
+        val effectiveProfileId = resolveEffectiveProfileId(profileId)
+        if (areDefaultStreamingAddonsInitialized(effectiveProfileId)) return false
+
+        currentProfileId = effectiveProfileId
+        var installedCount = 0
+        for (manifestUrl in DEFAULT_STREAMING_ADDON_MANIFESTS) {
+            if (_uiState.value.addons.any { it.manifestUrl == manifestUrl }) continue
+            try {
+                val payload = fetchAddonResponseText(manifestUrl)
+                val manifest = AddonManifestParser.parse(manifestUrl, payload)
+                val providesStreams = manifest.resources.any { it.name == "stream" }
+                if (!providesStreams || manifest.behaviorHints.configurationRequired || manifest.isTrackingAddon) {
+                    log.w { "Skipping default addon that is not a ready-to-use stream provider: $manifestUrl" }
+                    continue
+                }
+                if (installManifest(manifestUrl, manifest) is AddAddonResult.Success) {
+                    installedCount++
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.w(error) { "Unable to install default streaming addon: $manifestUrl" }
+            }
+        }
+
+        if (installedCount > 0 && !pushPendingChangesNow(effectiveProfileId)) {
+            log.w { "Default addons installed locally, but server upload failed; initialization will retry" }
+            return false
+        }
+
+        val allDefaultsPresent = DEFAULT_STREAMING_ADDON_MANIFESTS.all { manifestUrl ->
+            _uiState.value.addons.any { it.manifestUrl == manifestUrl }
+        }
+        if (!allDefaultsPresent) {
+            log.w { "Some default streaming addons are still unavailable; initialization will retry on a later sync" }
+            return false
+        }
+
+        setDefaultStreamingAddonsInitialized(effectiveProfileId, true)
+        log.i { "Default streaming addons are ready for profile $effectiveProfileId (newly installed: $installedCount)" }
+        return installedCount > 0
     }
 
     suspend fun awaitManifestsLoaded() {

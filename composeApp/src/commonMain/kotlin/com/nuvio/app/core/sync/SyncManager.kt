@@ -282,7 +282,17 @@ object SyncManager {
     private var fullPullFreshness = ProfilePullFreshness()
 
     private val profileSyncOperations = ProfileSyncOperations(
-        pullAddons = { profileId -> AddonRepository.pullFromServer(profileId) },
+        pullAddons = { profileId ->
+            check(AddonRepository.pullFromServer(profileId)) {
+                "Unable to pull addons for profile $profileId; default addon initialization skipped"
+            }
+            AddonRepository.seedDefaultStreamingAddonsIfNeeded(profileId)
+            if (AddonRepository.areDefaultStreamingAddonsInitialized(profileId)) {
+                check(ProfileSettingsSync.pushCurrentProfileToRemote()) {
+                    "Unable to sync default streaming addon initialization for profile $profileId"
+                }
+            }
+        },
         pullPlugins = { profileId -> PluginRepository.pullFromServer(profileId) },
         pullProfileSettings = { profileId -> ProfileSettingsSync.pull(profileId) },
         syncProviderCredentials = { profileId -> ProviderCredentialSync.syncFromRemote(profileId) },

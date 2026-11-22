@@ -60,6 +60,17 @@ actual object AddonStorage {
             forKey = "${addonEnabledStatesKey}_$profileId",
         )
     }
+
+    actual fun loadDefaultStreamingAddonsInitialized(profileId: Int): Boolean =
+        NSUserDefaults.standardUserDefaults
+            .boolForKey("default_streaming_addons_initialized_$profileId")
+
+    actual fun saveDefaultStreamingAddonsInitialized(profileId: Int, initialized: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(
+            initialized,
+            forKey = "default_streaming_addons_initialized_$profileId",
+        )
+    }
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {
