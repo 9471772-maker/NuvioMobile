@@ -419,6 +419,14 @@ kotlin {
             }
         }
 
+        // Work around Kotlin/Native Release linker OOM during devirtualization analysis.
+        // Keep this limited to iOS Release frameworks; Debug and Android remain unchanged.
+        iosTarget.binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.Framework>().configureEach {
+            if (buildType == org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE) {
+                freeCompilerArgs += "-Xdisable-phases=DevirtualizationAnalysis"
+            }
+        }
+
         if (iosTarget.name == "iosSimulatorArm64") {
             val testEntitlements = project.file("src/iosTest/resources/keychain-test.entitlements")
             iosTarget.binaries.withType<TestExecutable>().configureEach {
