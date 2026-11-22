@@ -56,6 +56,10 @@ workflows:
           export GRADLE_OPTS="-Xmx4g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g"
           export KOTLIN_DAEMON_JVMARGS="-Xmx2g"
 
+          echo "========== GRADLE DAEMON STARTUP DIAGNOSTIC =========="
+          ./gradlew --stop || true
+          ./gradlew help --info
+
           xcodebuild \
             -project iosApp/iosApp.xcodeproj \
             -scheme iosApp \
