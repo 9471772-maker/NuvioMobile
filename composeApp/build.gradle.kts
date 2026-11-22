@@ -423,7 +423,7 @@ kotlin {
         // Keep this limited to iOS Release frameworks; Debug and Android remain unchanged.
         iosTarget.binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.Framework>().configureEach {
             if (buildType == org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE) {
-                freeCompilerArgs += "-Xdisable-phases=DevirtualizationAnalysis"
+                freeCompilerArgs += "-Xdisable-phases=DevirtualizationAnalysis,RemoveRedundantCallsToStaticInitializersPhase"
             }
         }
 
