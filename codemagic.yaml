@@ -19,6 +19,24 @@ workflows:
           sysctl hw.memsize
           echo "========== FREE DISK =========="
           df -h "$CM_BUILD_DIR"
+          echo "========== GIT BUILD IDENTITY =========="
+          git rev-parse --show-toplevel
+          git rev-parse HEAD
+          git branch --show-current
+          git status --short
+          echo "========== PROJECT GRADLE CONFIG =========="
+          grep -n -E 'org.gradle.jvmargs|kotlin.daemon.jvmargs|kotlin.native.jvmArgs|kotlin.compiler.execution.strategy' gradle.properties || true
+          echo "========== GRADLE USER HOME =========="
+          echo "HOME=$HOME"
+          echo "GRADLE_USER_HOME=${GRADLE_USER_HOME:-<unset>}"
+          GH="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          if [ -f "$GH/gradle.properties" ]; then
+            cat "$GH/gradle.properties"
+          else
+            echo "No Gradle user-level properties at $GH/gradle.properties"
+          fi
+          echo "========== GRADLE ENVIRONMENT =========="
+          env | grep -E '^(GRADLE|ORG_GRADLE|KOTLIN|JAVA)' | sort || true
           chmod +x ./gradlew
           touch local.properties
 
