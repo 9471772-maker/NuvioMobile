@@ -37,6 +37,16 @@ workflows:
           fi
           echo "========== GRADLE ENVIRONMENT =========="
           env | grep -E '^(GRADLE|ORG_GRADLE|KOTLIN|JAVA)' | sort || true
+          echo "========== APPLY GRADLE DAEMON MEMORY =========="
+          GH="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          mkdir -p "$GH"
+          touch "$GH/gradle.properties"
+          if grep -q '^org.gradle.jvmargs=' "$GH/gradle.properties"; then
+            sed -i '' 's|^org.gradle.jvmargs=.*$|org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1024m|' "$GH/gradle.properties"
+          else
+            printf '\norg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1024m\n' >> "$GH/gradle.properties"
+          fi
+          grep -n -E '^(org.gradle.jvmargs|org.gradle.java.home)=' "$GH/gradle.properties"
           chmod +x ./gradlew
           touch local.properties
 
