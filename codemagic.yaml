@@ -15,7 +15,15 @@ workflows:
       - name: Create local.properties
         script: |
           touch local.properties
-
+      - name: Configure Gradle and Kotlin memory for iOS CI
+        script: |
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx1g
+          kotlin.native.jvmArgs=-Xmx6g
+          org.gradle.parallel=false
+          EOF
       - name: Build unsigned iOS app
         script: |
           xcodebuild \
