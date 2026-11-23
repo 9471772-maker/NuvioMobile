@@ -196,5 +196,6 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
             partyPanelInset = partyPanelInset,
             dockPartyPanel = dockPartyPanel,
         )
+        PlayerDownloadOverlay(runtime)
     }
 }

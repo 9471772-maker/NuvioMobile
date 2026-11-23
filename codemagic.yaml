@@ -1,0 +1,29 @@
+workflows:
+  ios-ipa:
+    name: Nuvio iOS IPA (KSign)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: com.nuvio.media
+
+    scripts:
+      - name: Initialize required MPVKit submodule
+        script: |
+          git submodule update --init -- MPVKit
+
+      - name: Configure iOS signing profiles
+        script: |
+          xcode-project use-profiles
+
+      - name: Build Nuvio IPA
+        script: |
+          xcode-project build-ipa \
+            --project iosApp/iosApp.xcodeproj \
+            --scheme iosApp
+
+    artifacts:
+      - build/ios/ipa/*.ipa

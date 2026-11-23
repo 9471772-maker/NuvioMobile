@@ -90,6 +90,7 @@ data class DownloadsUiState(
 enum class DownloadEnqueueResult {
     Started,
     Replaced,
+    AlreadyExists,
     MissingUrl,
     UnsupportedFormat;
 
@@ -97,6 +98,7 @@ enum class DownloadEnqueueResult {
         when (this@DownloadEnqueueResult) {
             Started -> getString(Res.string.downloads_enqueue_started)
             Replaced -> getString(Res.string.downloads_enqueue_replaced)
+            AlreadyExists -> "This title is already in Downloads"
             MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
             UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
         }

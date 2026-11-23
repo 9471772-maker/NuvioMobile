@@ -124,6 +124,7 @@ object DownloadsRepository {
         episodeTitle: String?,
         episodeThumbnail: String?,
         stream: StreamItem,
+        replaceExisting: Boolean = true,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -146,6 +147,9 @@ object DownloadsRepository {
         var replacedExisting = false
         val currentItems = _uiState.value.items.toMutableList()
         val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
+        if (existing != null && !replaceExisting) {
+            return DownloadEnqueueResult.AlreadyExists
+        }
         if (existing != null) {
             replacedExisting = true
             activeHandles.remove(existing.id)?.cancel()
