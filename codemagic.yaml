@@ -5,8 +5,9 @@ workflows:
     instance_type: mac_mini_m2
 
     environment:
+      vars:
+        CM_RECURSIVE_SUBMODULE_INIT: "false"
       xcode: latest
-
     scripts:
       - name: Initialize required MPVKit submodule
         script: |
