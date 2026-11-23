@@ -1,29 +1,44 @@
 workflows:
   ios-ipa:
-    name: Nuvio iOS IPA (KSign)
+    name: Nuvio iOS Unsigned IPA
     max_build_duration: 120
     instance_type: mac_mini_m2
 
     environment:
       xcode: latest
-      ios_signing:
-        distribution_type: ad_hoc
-        bundle_identifier: com.nuvio.media
 
     scripts:
       - name: Initialize required MPVKit submodule
         script: |
           git submodule update --init -- MPVKit
 
-      - name: Configure iOS signing profiles
+      - name: Build unsigned iOS app
         script: |
-          xcode-project use-profiles
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
-      - name: Build Nuvio IPA
+      - name: Package unsigned IPA
         script: |
-          xcode-project build-ipa \
-            --project iosApp/iosApp.xcodeproj \
-            --scheme iosApp
+          APP_PATH="build/ios/DerivedData/Build/Products/Release-iphoneos/Nuvio.app"
+          test -d "$APP_PATH" || {
+            echo "ERROR: Nuvio.app was not produced"
+            find build/ios/DerivedData/Build/Products -maxdepth 3 -name '*.app'
+            exit 1
+          }
+
+          mkdir -p build/ios/ipa/Payload
+          cp -R "$APP_PATH" build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -r Nuvio-unsigned.ipa Payload
 
     artifacts:
       - build/ios/ipa/*.ipa
