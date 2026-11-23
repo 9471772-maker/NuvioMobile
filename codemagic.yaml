@@ -12,6 +12,10 @@ workflows:
         script: |
           git submodule update --init -- MPVKit
 
+      - name: Create local.properties
+        script: |
+          touch local.properties
+
       - name: Build unsigned iOS app
         script: |
           xcodebuild \
