@@ -1,6 +1,8 @@
 package com.nuvio.app.features.addons
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -183,6 +185,10 @@ object AddonRepository {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) {
             log.w { "Skipping addon upload while using the primary profile's addons" }
             return false
+        }
+        if (AuthRepository.state.value.isAnonymous) {
+            log.d { "Skipping remote addon flush for anonymous profile $effectiveProfileId; changes are saved locally" }
+            return true
         }
 
         pushJobsByProfile[effectiveProfileId]?.cancelAndJoin()
@@ -474,6 +480,10 @@ object AddonRepository {
 
     private fun pushToServer() {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
+        if (AuthRepository.state.value.isAnonymous) {
+            log.d { "Skipping remote addon upload for anonymous profile; changes are saved locally" }
+            return
+        }
         val profileId = currentProfileId
         val addons = _uiState.value.addons
             .distinctBy { it.manifestUrl }
