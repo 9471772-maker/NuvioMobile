@@ -20,10 +20,11 @@ workflows:
         script: |
           mkdir -p "$HOME/.gradle"
           cat > "$HOME/.gradle/gradle.properties" <<'EOF'
-          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-          kotlin.daemon.jvmargs=-Xmx2g
-          kotlin.native.jvmArgs=-Xmx6g
+          org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx1g
+          kotlin.native.jvmArgs=-Xmx7g
           org.gradle.parallel=false
+          org.gradle.workers.max=1
           EOF
       - name: Build unsigned iOS app
         script: |
