@@ -2,7 +2,7 @@ workflows:
   ios-ipa:
     name: Nuvio iOS Unsigned IPA
     max_build_duration: 120
-    instance_type: mac_mini_m2
+    instance_type: mac_mini_m4
 
     environment:
       vars:
@@ -20,11 +20,12 @@ workflows:
         script: |
           mkdir -p "$HOME/.gradle"
           cat > "$HOME/.gradle/gradle.properties" <<'EOF'
-          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
           kotlin.daemon.jvmargs=-Xmx1g
-          kotlin.native.jvmArgs=-Xmx7g
+          kotlin.native.jvmArgs=-Xmx9g -XX:+UseG1GC -XX:MaxMetaspaceSize=1g
           org.gradle.parallel=false
           org.gradle.workers.max=1
+          org.gradle.configuration-cache=false
           EOF
       - name: Build unsigned iOS app
         script: |
