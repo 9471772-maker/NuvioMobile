@@ -70,6 +70,16 @@ jobs:
             : > local.properties
           fi
 
+      - name: Apply CI Gradle memory limits
+        run: |
+          sed -i '' \
+            -e 's|^kotlin\.daemon\.jvmargs=.*|kotlin.daemon.jvmargs=-Xmx2048M|' \
+            -e 's|^kotlin\.native\.jvmArgs=.*|kotlin.native.jvmArgs=-Xmx4608M|' \
+            -e 's|^org\.gradle\.jvmargs=.*|org.gradle.jvmargs=-Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m|' \
+            gradle.properties
+          echo "CI Gradle memory settings:"
+          grep -nE '^(kotlin\.daemon\.jvmargs|kotlin\.native\.jvmArgs|org\.gradle\.jvmargs)=' gradle.properties
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 
