@@ -37,27 +37,45 @@ internal fun AddonDirectorySection(
 ) {
     var searchText by rememberSaveable { mutableStateOf("") }
     var appliedSearch by rememberSaveable { mutableStateOf("") }
-    var page by rememberSaveable { mutableStateOf(1) }
+    var reloadToken by remember { mutableStateOf(0) }
     var entries by remember { mutableStateOf(emptyList<AddonDirectoryEntry>()) }
-    var hasNextPage by remember { mutableStateOf(false) }
+    var totalAddons by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
 
-    LaunchedEffect(appliedSearch, page) {
+    LaunchedEffect(appliedSearch, reloadToken) {
         loading = true
         error = null
+        entries = emptyList()
+        totalAddons = 0
+
         try {
-            val result = AddonDirectoryRepository.fetchPage(
-                page = page,
-                search = appliedSearch,
-            )
-            entries = if (page == 1) {
-                result.entries
-            } else {
-                (entries + result.entries).distinctBy { it.manifestUrl }
+            val combined = linkedMapOf<String, AddonDirectoryEntry>()
+            var requestedPage = 1
+            var hasMore = true
+
+            while (hasMore) {
+                val result = AddonDirectoryRepository.fetchPage(
+                    page = requestedPage,
+                    search = appliedSearch,
+                )
+
+                totalAddons = result.total
+                result.entries.forEach { entry ->
+                    combined[entry.manifestUrl] = entry
+                }
+
+                entries = combined.values.toList()
+                hasMore = result.hasNextPage
+                requestedPage++
+
+                if (requestedPage > 1000 && hasMore) {
+                    throw IllegalStateException(
+                        "Addon directory exceeded the 1000-page safety limit."
+                    )
+                }
             }
-            hasNextPage = result.hasNextPage
         } catch (exception: Exception) {
             error = exception.message ?: "Unable to load the addon directory."
         } finally {
@@ -90,13 +108,17 @@ internal fun AddonDirectorySection(
             enabled = !loading,
             onClick = {
                 appliedSearch = searchText.trim()
-                page = 1
-                entries = emptyList()
+                reloadToken++
             },
         )
 
         Text(
-            text = "All directory entries are shown, including approved alternative server instances. Adult-content entries are labelled.",
+            text = "Available catalogue addons: $totalAddons",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "Loaded installable entries: ${entries.size} (including alternative server instances). Adult-content entries are labelled.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -118,8 +140,7 @@ internal fun AddonDirectorySection(
                 text = "Retry",
                 enabled = !loading,
                 onClick = {
-                    page = 1
-                    entries = emptyList()
+                    reloadToken++
                 },
             )
         }
@@ -136,20 +157,6 @@ internal fun AddonDirectorySection(
                 entry = entry,
                 installed = entry.manifestUrl in installedUrls,
                 onInstall = { onInstall(entry) },
-            )
-        }
-
-        if (loading && entries.isNotEmpty()) {
-            Text(
-                text = "Loading more addons...",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (hasNextPage && !loading) {
-            NuvioPrimaryButton(
-                text = "Load more addons",
-                onClick = { page += 1 },
             )
         }
 

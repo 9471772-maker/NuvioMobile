@@ -28,11 +28,12 @@ internal data class AddonDirectoryPage(
     val entries: List<AddonDirectoryEntry>,
     val page: Int,
     val totalPages: Int,
+    val total: Int,
     val hasNextPage: Boolean,
 )
 
 internal object AddonDirectoryRepository {
-    private const val PAGE_SIZE = 25
+    private const val PAGE_SIZE = 100
     private const val API_URL = "https://stremio-addons.net/api/v0/addons"
 
     private val json = Json {
@@ -77,6 +78,7 @@ internal object AddonDirectoryRepository {
             entries = entries,
             page = pagination?.int("page") ?: page,
             totalPages = pagination?.int("totalPages") ?: page,
+            total = pagination?.int("total") ?: 0,
             hasNextPage = pagination?.boolean("hasNextPage") ?: false,
         )
     }
