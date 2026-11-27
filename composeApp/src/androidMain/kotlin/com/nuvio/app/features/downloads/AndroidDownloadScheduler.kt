@@ -123,8 +123,15 @@ internal class AndroidDownloadScheduler(val context: Context) {
         cleanupScope.launch {
             lock(fileName).withLock {
                 if (store.get(fileName) == null) {
-                    File(directory, "$fileName.part").delete()
-                    DownloadSubtitleStorage(File(directory, fileName).toURI().toString()).remove()
+                    val partial = File(directory, "$fileName.part")
+                    if (partial.isDirectory) partial.deleteRecursively() else partial.delete()
+
+                    val subtitleUri = if (transfer?.item?.isHls == true) {
+                        File(File(directory, fileName), "index.m3u8").toURI().toString()
+                    } else {
+                        File(directory, fileName).toURI().toString()
+                    }
+                    DownloadSubtitleStorage(subtitleUri).remove()
                 }
             }
         }
@@ -151,41 +158,87 @@ internal class AndroidDownloadScheduler(val context: Context) {
                 .build()
         } else downloadHttpClient
         try {
-            DownloadSubtitles.prepare(transfer.item, destination.toURI().toString())
-            currentCoroutineContext().ensureActive()
-            if (!isActive(transfer)) return@withLock false
-            var lastProgressAt = 0L
-            val partial = if (destination.isFile) destination else transferAndroidDownload(
-                item = transfer.item,
-                directory = directory,
-                validator = transfer.validator,
-                client = client,
-                onHeaders = { total, validator ->
-                    updateActive(transfer) { it.copy(validator = validator, item = it.item.copy(totalBytes = total)) }
-                },
-                onProgress = { bytes, total ->
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastProgressAt >= 1_000L || bytes == total) {
-                        lastProgressAt = now
-                        updateActive(transfer) {
-                            it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
-                        }?.let(onProgress)
-                    }
-                },
-            )
-            currentCoroutineContext().ensureActive()
-            updateActive(transfer) { current ->
-                if (partial != destination && !partial.renameTo(destination)) {
-                    throw IOException("Could not finalize the downloaded file")
+            if (transfer.item.isHls) {
+                val indexFile = File(destination, "index.m3u8")
+                if (destination.exists() && (!destination.isDirectory || !indexFile.isFile)) {
+                    throw IOException("An incomplete or conflicting HLS download already exists")
                 }
-                val bytes = destination.length()
-                current.copy(item = current.item.copy(
-                    status = DownloadStatus.Completed,
-                    localFileUri = destination.toURI().toString(),
-                    downloadedBytes = bytes,
-                    totalBytes = bytes,
-                    errorMessage = null,
-                ))
+
+                if (!indexFile.isFile) {
+                    val stagingDirectory = File(directory, "$fileName.part")
+                    var lastProgressAt = 0L
+                    transferAndroidHlsDownload(
+                        item = transfer.item,
+                        stagingDirectory = stagingDirectory,
+                        client = client,
+                        onProgress = { bytes ->
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastProgressAt >= 1_000L) {
+                                lastProgressAt = now
+                                updateActive(transfer) {
+                                    it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = null))
+                                }?.let(onProgress)
+                            }
+                        },
+                    )
+                    currentCoroutineContext().ensureActive()
+                    if (!isActive(transfer)) return@withLock false
+                    if (!stagingDirectory.renameTo(destination)) {
+                        throw IOException("Could not finalize the HLS download")
+                    }
+                }
+
+                currentCoroutineContext().ensureActive()
+                if (!isActive(transfer)) return@withLock false
+                val localIndexUri = indexFile.toURI().toString()
+                DownloadSubtitles.prepare(transfer.item, localIndexUri)
+                val bytes = destination.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                updateActive(transfer) { current ->
+                    current.copy(item = current.item.copy(
+                        status = DownloadStatus.Completed,
+                        localFileUri = localIndexUri,
+                        downloadedBytes = bytes,
+                        totalBytes = bytes,
+                        errorMessage = null,
+                    ))
+                }
+            } else {
+                DownloadSubtitles.prepare(transfer.item, destination.toURI().toString())
+                currentCoroutineContext().ensureActive()
+                if (!isActive(transfer)) return@withLock false
+                var lastProgressAt = 0L
+                val partial = if (destination.isFile) destination else transferAndroidDownload(
+                    item = transfer.item,
+                    directory = directory,
+                    validator = transfer.validator,
+                    client = client,
+                    onHeaders = { total, validator ->
+                        updateActive(transfer) { it.copy(validator = validator, item = it.item.copy(totalBytes = total)) }
+                    },
+                    onProgress = { bytes, total ->
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastProgressAt >= 1_000L || bytes == total) {
+                            lastProgressAt = now
+                            updateActive(transfer) {
+                                it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
+                            }?.let(onProgress)
+                        }
+                    },
+                )
+                currentCoroutineContext().ensureActive()
+                updateActive(transfer) { current ->
+                    if (partial != destination && !partial.renameTo(destination)) {
+                        throw IOException("Could not finalize the downloaded file")
+                    }
+                    val bytes = destination.length()
+                    current.copy(item = current.item.copy(
+                        status = DownloadStatus.Completed,
+                        localFileUri = destination.toURI().toString(),
+                        downloadedBytes = bytes,
+                        totalBytes = bytes,
+                        errorMessage = null,
+                    ))
+                }
             }
             false
         } catch (cancelled: CancellationException) {

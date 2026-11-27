@@ -190,6 +190,7 @@ object DownloadsRepository {
             sourceUrl = sourceUrl,
             sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+            isHls = sourceUrl.isHlsPlaylistUrl(),
             subtitleRequests = addonSubtitleRequests(
                 type = contentType,
                 videoId = videoId,
@@ -547,7 +548,7 @@ private fun buildFileName(
         title.ifBlank { fallbackTitle }
     }
 
-    val extension = sourceUrl.fileExtensionFromUrl()
+    val extension = if (sourceUrl.isHlsPlaylistUrl()) "hls" else sourceUrl.fileExtensionFromUrl()
     return buildString {
         append(baseTitle.sanitizeFileName().ifBlank { "download" }.take(92))
         append('_')
@@ -573,11 +574,15 @@ private fun String.fileExtensionFromUrl(): String {
     }
 }
 
+private fun String.isHlsPlaylistUrl(): Boolean {
+    val path = trim().substringBefore('#').substringBefore('?').lowercase()
+    return path.endsWith(".m3u8") || path.endsWith(".m3u")
+}
+
 private fun String.isSupportedDownloadUrl(): Boolean {
     val normalized = trim().lowercase()
     if (normalized.startsWith("magnet:")) return false
-    if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
-    if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
-    if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
+    if (normalized.substringBefore('#').substringBefore('?').endsWith(".mpd")) return false
+    if (normalized.substringBefore('#').substringBefore('?').endsWith(".torrent")) return false
     return normalized.startsWith("http://") || normalized.startsWith("https://")
 }

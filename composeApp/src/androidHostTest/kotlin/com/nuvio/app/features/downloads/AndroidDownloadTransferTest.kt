@@ -26,6 +26,69 @@ class AndroidDownloadTransferTest {
     @get:Rule val temporary = TemporaryFolder()
 
     @Test
+    fun hlsSameOriginRequestsRetainAuthorizationHeader(): Unit = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(
+                MockResponse().setBody(
+                    "#EXTM3U\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n"
+                )
+            )
+            server.enqueue(MockResponse().setBody("segment-data"))
+
+            val item = downloadItem(server.url("/index.m3u8").toString()).copy(
+                fileName = "video",
+                isHls = true,
+            )
+            val output = transferAndroidHlsDownload(
+                item,
+                temporary.newFolder(),
+                onProgress = {},
+            )
+
+            assertTrue(File(output, "index.m3u8").isFile)
+            assertEquals("Bearer test", server.takeRequest().getHeader("Authorization"))
+            assertEquals("Bearer test", server.takeRequest().getHeader("Authorization"))
+        }
+    }
+
+    @Test
+    fun hlsCrossOriginRedirectStripsAuthorizationHeader(): Unit = runBlocking {
+        MockWebServer().use { sourceServer ->
+            MockWebServer().use { targetServer ->
+                sourceServer.enqueue(
+                    MockResponse()
+                        .setResponseCode(302)
+                        .setHeader("Location", targetServer.url("/index.m3u8"))
+                )
+                targetServer.enqueue(
+                    MockResponse().setBody(
+                        "#EXTM3U\n#EXTINF:4.0,\nsegment.ts\n#EXT-X-ENDLIST\n"
+                    )
+                )
+                targetServer.enqueue(MockResponse().setBody("segment-data"))
+
+                val item = downloadItem(sourceServer.url("/start.m3u8").toString()).copy(
+                    fileName = "video",
+                    isHls = true,
+                )
+                val output = transferAndroidHlsDownload(
+                    item,
+                    temporary.newFolder(),
+                    onProgress = {},
+                )
+
+                assertTrue(File(output, "index.m3u8").isFile)
+                assertEquals(
+                    "Bearer test",
+                    sourceServer.takeRequest().getHeader("Authorization"),
+                )
+                assertNull(targetServer.takeRequest().getHeader("Authorization"))
+                assertNull(targetServer.takeRequest().getHeader("Authorization"))
+            }
+        }
+    }
+
+    @Test
     fun resumesPartialFileWithRangeAndValidator(): Unit = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 5-10/11")

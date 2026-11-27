@@ -72,7 +72,19 @@ internal actual object DownloadsPlatformDownloader {
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
         val file = localFileUri.toLocalFileOrNull() ?: return false
-        return runCatching { file.delete() }.getOrDefault(false)
+        return runCatching {
+            if (file.isFile && file.name == "index.m3u8") {
+                val packageDirectory = file.parentFile
+                if (packageDirectory?.isDirectory == true) {
+                    DownloadSubtitleStorage(file.toURI().toString()).remove()
+                    packageDirectory.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+            } else {
+                file.delete()
+            }
+        }.getOrDefault(false)
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
@@ -85,7 +97,10 @@ internal actual object DownloadsPlatformDownloader {
         localFileUri
             ?.toLocalFileOrNull()
             ?.takeIf { it.exists() }
-            ?.let { return it.toURI().toString() }
+            ?.let { file ->
+                val entry = if (file.isDirectory) File(file, "index.m3u8").takeIf { it.isFile } ?: file else file
+                return entry.toURI().toString()
+            }
 
         val context = appContext ?: return null
         val fileName = destinationFileName.trim().takeIf { it.isNotBlank() }
@@ -94,9 +109,14 @@ internal actual object DownloadsPlatformDownloader {
                 ?.name
                 ?.takeIf { it.isNotBlank() }
             ?: return null
-        val downloadsDir = File(context.filesDir, "downloads")
-        val localFile = File(downloadsDir, fileName)
-        return localFile.takeIf { it.exists() }?.toURI()?.toString()
+        val localFile = File(File(context.filesDir, "downloads"), fileName)
+        if (!localFile.exists()) return null
+        val entry = if (localFile.isDirectory) {
+            File(localFile, "index.m3u8").takeIf { it.isFile } ?: localFile
+        } else {
+            localFile
+        }
+        return entry.toURI().toString()
     }
 
     actual fun openDownloadsDirectory(): Boolean {

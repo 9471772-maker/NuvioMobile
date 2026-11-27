@@ -12,10 +12,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.debrid.DebridMagnetBuilder
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
@@ -29,8 +32,14 @@ internal fun PlayerDownloadOverlay(runtime: PlayerScreenRuntime) {
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
 
+    val clipboardManager = LocalClipboardManager.current
     val stream = runtime.activeStream
     val sourceUrl = runtime.activeSourceUrl
+    val magnetUri = stream?.let(DebridMagnetBuilder::fromStream)
+        ?: runtime.activeTorrentInfoHash?.let { hash ->
+            "magnet:?xt=urn:btih:$hash"
+        }
+
     val shouldResolve = stream?.let {
         DirectDebridPlaybackResolver.shouldResolveToPlayableStream(it)
     } ?: false
@@ -44,80 +53,99 @@ internal fun PlayerDownloadOverlay(runtime: PlayerScreenRuntime) {
                 (shouldResolve && sourceUrl.startsWith("http", ignoreCase = true))
             )
 
-    if (!canDownload) return
-
     var isEnqueuing by remember(stream, sourceUrl) {
         mutableStateOf(false)
     }
 
+    if (magnetUri == null && !canDownload) return
+
     Box(modifier = Modifier.fillMaxSize()) {
-        FloatingActionButton(
-            onClick = {
-                if (isEnqueuing) return@FloatingActionButton
+        if (magnetUri != null) {
+            FloatingActionButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(magnetUri))
+                    NuvioToastController.show("Magnet link copied")
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(24.dp),
+            ) {
+                Text(text = "⛓", fontSize = 24.sp)
+            }
+        }
 
-                val currentStream = runtime.activeStream ?: return@FloatingActionButton
-                val parentMetaId = runtime.parentMetaId
-                val season = runtime.activeSeasonNumber
-                val episode = runtime.activeEpisodeNumber
+        if (canDownload) {
+            FloatingActionButton(
+                onClick = {
+                    if (isEnqueuing) return@FloatingActionButton
 
-                val logicalKey = if (season != null && episode != null) {
-                    "${parentMetaId.trim()}|$season|$episode"
-                } else {
-                    "${parentMetaId.trim()}|movie"
-                }
+                    val currentStream = runtime.activeStream ?: return@FloatingActionButton
+                    val parentMetaId = runtime.parentMetaId
+                    val season = runtime.activeSeasonNumber
+                    val episode = runtime.activeEpisodeNumber
 
-                if (downloadsState.items.any { it.logicalContentKey == logicalKey }) {
-                    NuvioToastController.show("This title is already in Downloads")
-                    return@FloatingActionButton
-                }
-
-                isEnqueuing = true
-                runtime.scope.launch {
-                    try {
-                        when (
-                            val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                                stream = currentStream,
-                                season = season,
-                                episode = episode,
-                            )
-                        ) {
-                            is DirectDebridPlayableResult.Success -> {
-                                val result = DownloadsRepository.enqueueFromStream(
-                                    contentType = runtime.contentType ?: runtime.parentMetaType,
-                                    videoId = runtime.activeVideoId ?: runtime.parentMetaId,
-                                    parentMetaId = parentMetaId,
-                                    parentMetaType = runtime.parentMetaType,
-                                    title = runtime.title,
-                                    logo = runtime.logo,
-                                    poster = runtime.poster,
-                                    background = runtime.background,
-                                    seasonNumber = season,
-                                    episodeNumber = episode,
-                                    episodeTitle = runtime.activeEpisodeTitle,
-                                    episodeThumbnail = runtime.activeEpisodeThumbnail,
-                                    stream = resolved.stream,
-                                    replaceExisting = false,
-                                )
-                                NuvioToastController.show(result.toastMessage())
-                            }
-
-                            else -> {
-                                resolved.toastMessage()?.let(NuvioToastController::show)
-                            }
-                        }
-                    } finally {
-                        isEnqueuing = false
+                    val logicalKey = if (season != null && episode != null) {
+                        "${parentMetaId.trim()}|$season|$episode"
+                    } else {
+                        "${parentMetaId.trim()}|movie"
                     }
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(24.dp),
-        ) {
-            Text(
-                text = if (isEnqueuing) "…" else "↓",
-                fontSize = 25.sp,
-            )
+
+                    if (downloadsState.items.any { it.logicalContentKey == logicalKey }) {
+                        NuvioToastController.show("This title is already in Downloads")
+                        return@FloatingActionButton
+                    }
+
+                    isEnqueuing = true
+                    runtime.scope.launch {
+                        try {
+                            when (
+                                val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
+                                    stream = currentStream,
+                                    season = season,
+                                    episode = episode,
+                                )
+                            ) {
+                                is DirectDebridPlayableResult.Success -> {
+                                    val result = DownloadsRepository.enqueueFromStream(
+                                        contentType = runtime.contentType ?: runtime.parentMetaType,
+                                        videoId = runtime.activeVideoId ?: runtime.parentMetaId,
+                                        parentMetaId = parentMetaId,
+                                        parentMetaType = runtime.parentMetaType,
+                                        title = runtime.title,
+                                        logo = runtime.logo,
+                                        poster = runtime.poster,
+                                        background = runtime.background,
+                                        seasonNumber = season,
+                                        episodeNumber = episode,
+                                        episodeTitle = runtime.activeEpisodeTitle,
+                                        episodeThumbnail = runtime.activeEpisodeThumbnail,
+                                        stream = resolved.stream,
+                                        replaceExisting = false,
+                                    )
+                                    NuvioToastController.show(result.toastMessage())
+                                }
+
+                                else -> {
+                                    resolved.toastMessage()?.let(NuvioToastController::show)
+                                }
+                            }
+                        } finally {
+                            isEnqueuing = false
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        end = 24.dp,
+                        top = if (magnetUri != null) 96.dp else 24.dp,
+                    ),
+            ) {
+                Text(
+                    text = if (isEnqueuing) "…" else "↓",
+                    fontSize = 25.sp,
+                )
+            }
         }
     }
 }

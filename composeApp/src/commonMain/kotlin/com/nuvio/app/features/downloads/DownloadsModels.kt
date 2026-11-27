@@ -41,6 +41,7 @@ data class DownloadItem(
     val sourceUrl: String,
     val sourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
+    val isHls: Boolean = false,
     val subtitleRequests: List<SubtitleAddonRequest> = emptyList(),
     val sourceSubtitles: List<StreamSubtitle> = emptyList(),
     val localFileUri: String? = null,
