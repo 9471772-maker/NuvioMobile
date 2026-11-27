@@ -1,0 +1,97 @@
+name: Build Full Android Test APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-full-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Full Release APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure release signing and properties
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${RELEASE_PROPERTIES_BASE64}" || -z "${RELEASE_KEYSTORE_BASE64}" ]]; then
+            echo "Required Android release signing secrets are missing." >&2
+            exit 1
+          fi
+
+          keystore_path="${RUNNER_TEMP}/nuvio-release.jks"
+          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          printf '\nNUVIO_RELEASE_STORE_FILE=%s\n' "${keystore_path}" >> local.properties
+
+          required_properties=(
+            NUVIO_RELEASE_STORE_PASSWORD
+            NUVIO_RELEASE_KEY_ALIAS
+            NUVIO_RELEASE_KEY_PASSWORD
+            TRAKT_CLIENT_ID
+            TRAKT_CLIENT_SECRET
+          )
+
+          for property_name in "${required_properties[@]}"; do
+            if ! grep -Eq "^${property_name}=.+" local.properties; then
+              echo "Missing required property: ${property_name}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Build Full Release APKs
+        run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.android.distribution=full --stacktrace
+
+      - name: Summarize APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk_dir="androidApp/build/outputs/apk/full/release"
+          mapfile -t apks < <(find "${apk_dir}" -maxdepth 1 -type f -name '*.apk' | sort)
+
+          if (( ${#apks[@]} == 0 )); then
+            echo "No Full Release APKs were produced." >&2
+            exit 1
+          fi
+
+          {
+            echo "## Full Android Release APKs"
+            echo
+            for apk in "${apks[@]}"; do
+              echo "- $(basename "${apk}") — $(du -h "${apk}" | cut -f1)"
+              echo "  SHA-256: $(sha256sum "${apk}" | awk '{print $1}')"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Full Release APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-full-release-apks-${{ github.sha }}
+          path: androidApp/build/outputs/apk/full/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
