@@ -191,6 +191,7 @@ object DownloadsRepository {
             sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
             isHls = sourceUrl.isHlsPlaylistUrl(),
+            expectedVideoSize = stream.behaviorHints.videoSize?.takeIf { it > 0L },
             subtitleRequests = addonSubtitleRequests(
                 type = contentType,
                 videoId = videoId,

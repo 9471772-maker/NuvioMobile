@@ -114,6 +114,31 @@ internal actual object DownloadsPlatformDownloader {
                     error(runBlocking { getString(Res.string.network_request_failed_http, result.statusCode) })
                 }
 
+                val mimeType = result.mimeType?.substringBefore(";")?.trim()?.lowercase()
+                val invalidResponseType = !request.item.isHls && mimeType != null && (
+                    mimeType == "text/html" ||
+                    mimeType == "application/xhtml+xml" ||
+                    mimeType.contains("json") ||
+                    mimeType == "application/xml" ||
+                    mimeType == "text/xml" ||
+                    mimeType.endsWith("+xml")
+                )
+                if (invalidResponseType) {
+                    removePathIfExists(tempPath)
+                    error("Download returned an invalid response instead of video (HTTP ${result.statusCode}, ${mimeType}, ${result.finalHost ?: "unknown host"}).")
+                }
+
+                if (!request.item.isHls) {
+                    val expectedSize = request.item.expectedVideoSize?.takeIf { it > 0L }
+                    if (expectedSize != null) {
+                        val actualSize = fileSizeOrNull(tempPath) ?: 0L
+                        val minimumExpectedSize = expectedSize - (expectedSize / 10L)
+                        if (actualSize < minimumExpectedSize) {
+                            error("Download is incomplete: received $actualSize bytes, expected approximately $expectedSize bytes.")
+                        }
+                    }
+                }
+
                 val isPartialResume = attemptedRangeRequest && result.statusCode == 206 && resumeFromBytes > 0L
                 val startingBytes = if (isPartialResume) resumeFromBytes else 0L
                 val totalBytes = resolveTotalBytes(
@@ -227,6 +252,8 @@ private data class IosDownloadResult(
     val statusCode: Int,
     val contentRange: String?,
     val contentLength: Long?,
+    val mimeType: String?,
+    val finalHost: String?,
 )
 
 @OptIn(ExperimentalForeignApi::class)
@@ -263,6 +290,8 @@ private class IosDownloadDelegate(
                 ?.valueForHTTPHeaderField("Content-Length")
                 ?.toLongOrNull()
                 ?.takeIf { it > 0L },
+            mimeType = didReceiveResponse.MIMEType,
+            finalHost = didReceiveResponse.URL?.host,
         )
         result = nextResult
 
@@ -390,6 +419,8 @@ private fun NSURLResponse?.toDownloadResult(): IosDownloadResult {
             ?.valueForHTTPHeaderField("Content-Length")
             ?.toLongOrNull()
             ?.takeIf { it > 0L },
+        mimeType = this?.MIMEType,
+        finalHost = this?.URL?.host,
     )
 }
 
