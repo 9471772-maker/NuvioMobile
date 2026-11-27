@@ -18,6 +18,9 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -350,6 +353,8 @@ private fun DownloadRow(
         item = item,
         displayTitle = displayTitle,
     )
+    val exportActions = rememberDownloadExportActions()
+    var exportMenuExpanded by remember(item.id) { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
@@ -397,6 +402,58 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.status == DownloadStatus.Completed && !item.isHls) {
+                        Box {
+                            IconButton(onClick = { exportMenuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Share,
+                                    contentDescription = "Export download",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = exportMenuExpanded,
+                                onDismissRequest = { exportMenuExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Save to Photos") },
+                                    onClick = {
+                                        exportMenuExpanded = false
+                                        val uri = DownloadsPlatformDownloader.resolveLocalFileUri(
+                                            item.localFileUri,
+                                            item.fileName,
+                                        )
+                                        if (uri == null) {
+                                            NuvioToastController.show(
+                                                "The downloaded video file could not be found."
+                                            )
+                                        } else {
+                                            exportActions.saveToPhotos(uri) { success ->
+                                                NuvioToastController.show(
+                                                    if (success) "Video saved to Photos."
+                                                    else "Could not save video to Photos. Check Photos permission."
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save to Files") },
+                                    onClick = {
+                                        exportMenuExpanded = false
+                                        val uri = DownloadsPlatformDownloader.resolveLocalFileUri(
+                                            item.localFileUri,
+                                            item.fileName,
+                                        )
+                                        if (uri == null || !exportActions.shareFile(uri)) {
+                                            NuvioToastController.show(
+                                                "Unable to open the export options for this download."
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
                     when (item.status) {
                         DownloadStatus.Downloading -> {
                             IconButton(onClick = onPause) {

@@ -50,6 +50,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Nuvio connects to media servers on your local network.</string>
+        <key>NSPhotoLibraryAddUsageDescription</key>
+        <string>Nuvio saves videos you choose to your Photos library.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
