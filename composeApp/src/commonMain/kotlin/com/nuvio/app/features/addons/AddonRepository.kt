@@ -1,6 +1,8 @@
 package com.nuvio.app.features.addons
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -48,6 +50,11 @@ private data class AddonPushItem(
 
 private const val ADDON_PUSH_DEBOUNCE_MS = 500L
 
+private val DEFAULT_STREAMING_ADDON_MANIFESTS = listOf(
+    "https://watchhub.strem.io/manifest.json",
+    "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
+)
+
 object AddonRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("AddonRepository")
@@ -89,6 +96,85 @@ object AddonRepository {
                 refreshAddon(manifestUrl)
             }
         }
+    }
+
+    fun areDefaultStreamingAddonsInitialized(profileId: Int): Boolean =
+        AddonStorage.loadDefaultStreamingAddonsInitialized(resolveEffectiveProfileId(profileId))
+
+    fun setDefaultStreamingAddonsInitialized(profileId: Int, initialized: Boolean) {
+        AddonStorage.saveDefaultStreamingAddonsInitialized(
+            resolveEffectiveProfileId(profileId),
+            initialized,
+        )
+    }
+
+    suspend fun seedDefaultStreamingAddonsIfNeeded(profileId: Int): Boolean {
+        if (!AuthRepository.state.value.isAnonymous) return false
+        if (isUsingPrimaryAddonsFromSecondaryProfile()) {
+            log.i { "Skipping default addon seeding for a secondary profile sharing primary addons" }
+            return false
+        }
+
+        if (!initialized) initialize()
+        val effectiveProfileId = resolveEffectiveProfileId(profileId)
+        if (areDefaultStreamingAddonsInitialized(effectiveProfileId)) return false
+
+        currentProfileId = effectiveProfileId
+        var installedCount = 0
+
+        for (manifestUrl in DEFAULT_STREAMING_ADDON_MANIFESTS) {
+            if (_uiState.value.addons.any { it.manifestUrl == manifestUrl }) continue
+
+            try {
+                val manifest = withContext(Dispatchers.Default) {
+                    val payload = fetchAddonResponseText(manifestUrl)
+                    AddonManifestParser.parse(
+                        manifestUrl = manifestUrl,
+                        payload = payload,
+                    )
+                }
+
+                val providesStreams = manifest.resources.any { it.name == "stream" }
+                if (!providesStreams || manifest.behaviorHints.configurationRequired) {
+                    log.w { "Skipping default addon that is not a ready-to-use stream provider: $manifestUrl" }
+                    continue
+                }
+
+                _uiState.update { current ->
+                    if (current.addons.any { it.manifestUrl == manifestUrl }) {
+                        current
+                    } else {
+                        current.copy(
+                            addons = current.addons + ManagedAddon(
+                                manifestUrl = manifestUrl,
+                                manifest = manifest,
+                                isRefreshing = false,
+                                errorMessage = null,
+                            ),
+                        )
+                    }
+                }
+                installedCount++
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.w(error) { "Unable to install default streaming addon: $manifestUrl" }
+            }
+        }
+
+        if (installedCount > 0) persist()
+
+        val allDefaultsPresent = DEFAULT_STREAMING_ADDON_MANIFESTS.all { manifestUrl ->
+            _uiState.value.addons.any { it.manifestUrl == manifestUrl }
+        }
+        if (!allDefaultsPresent) {
+            log.w { "Some default streaming addons are unavailable; initialization will retry later" }
+            return false
+        }
+
+        setDefaultStreamingAddonsInitialized(effectiveProfileId, true)
+        log.i { "Default streaming addons are ready for profile $effectiveProfileId (newly installed: $installedCount)" }
+        return installedCount > 0
     }
 
     fun onProfileChanged(profileId: Int) {
@@ -340,6 +426,10 @@ object AddonRepository {
 
     private fun pushToServer() {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
+        if (AuthRepository.state.value.isAnonymous) {
+            log.d { "Skipping remote addon push for anonymous profile $currentProfileId; changes are saved locally" }
+            return
+        }
         val profileId = currentProfileId
         val addons = _uiState.value.addons
             .distinctBy { it.manifestUrl }

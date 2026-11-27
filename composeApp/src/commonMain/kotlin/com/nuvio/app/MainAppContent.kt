@@ -316,6 +316,7 @@ internal fun MainAppContent(
             state.activeProfile ?: state.profiles.firstOrNull()
         }
         val activeProfileIndex by ProfileRepository.state.collectMappedAsState { it.activeProfile?.profileIndex }
+        val profileIsLoaded by ProfileRepository.state.collectMappedAsState { it.isLoaded }
     val playerSettingsUiState by remember {
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
@@ -650,6 +651,16 @@ internal fun MainAppContent(
                     }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(authState, activeProfileIndex, profileIsLoaded) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        val authenticatedState = authState as? AuthState.Authenticated
+        if (authenticatedState?.isAnonymous == true && profileIsLoaded) {
+            AddonRepository.seedDefaultStreamingAddonsIfNeeded(
+                activeProfileIndex ?: ProfileRepository.activeProfileId,
+            )
         }
     }
 

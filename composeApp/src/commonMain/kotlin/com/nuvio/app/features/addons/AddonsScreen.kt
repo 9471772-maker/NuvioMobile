@@ -23,6 +23,8 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -91,10 +93,14 @@ internal fun AddonsSettingsPageContent(
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     var addonUrl by rememberSaveable { mutableStateOf("") }
+    var bulkAddonUrls by rememberSaveable { mutableStateOf("") }
+    var bulkImporting by remember { mutableStateOf(false) }
+    var bulkImportSummary by remember { mutableStateOf<String?>(null) }
     var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var installModalState by remember { mutableStateOf<AddonInstallModalState?>(null) }
     var addonPendingDeletionUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val enterAddonUrlMessage = stringResource(Res.string.addons_error_enter_url)
+    val duplicateAddonMessage = stringResource(Res.string.addon_already_installed)
     val usePersonalMediaCopy = AppFeaturePolicy.personalMediaAddonCopyEnabled
 
     val overview = remember(uiState.addons) { uiState.addons.toOverview() }
@@ -134,6 +140,83 @@ internal fun AddonsSettingsPageContent(
 
                         is AddAddonResult.Error -> {
                             AddonInstallModalState.Error(result.message)
+                        }
+                    }
+                }
+            },
+        )
+
+        AddonDirectorySection(
+            installedUrls = uiState.addons.map { it.manifestUrl }.toSet(),
+            onInstall = { entry ->
+                installModalState = AddonInstallModalState.Checking
+                coroutineScope.launch {
+                    installModalState = when (
+                        val result = AddonRepository.addAddon(entry.manifestUrl)
+                    ) {
+                        is AddAddonResult.Success ->
+                            AddonInstallModalState.Success(result.manifest.name)
+
+                        is AddAddonResult.Error ->
+                            AddonInstallModalState.Error(result.message)
+                    }
+                }
+            },
+        )
+
+        BulkAddonImportCard(
+            urls = bulkAddonUrls,
+            importing = bulkImporting,
+            summary = bulkImportSummary,
+            onUrlsChange = {
+                bulkAddonUrls = it
+                bulkImportSummary = null
+            },
+            onImportClick = {
+                val urls = bulkAddonUrls
+                    .split(',', '\n', '\r')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+
+                if (urls.isNotEmpty() && !bulkImporting) {
+                    bulkImporting = true
+                    bulkImportSummary = null
+
+                    coroutineScope.launch {
+                        var installed = 0
+                        var skipped = 0
+                        val failures = mutableListOf<String>()
+
+                        try {
+                            for (url in urls) {
+                                when (val result = AddonRepository.addAddon(url)) {
+                                    is AddAddonResult.Success -> installed++
+                                    is AddAddonResult.Error -> {
+                                        if (result.message == duplicateAddonMessage) {
+                                            skipped++
+                                        } else {
+                                            failures += "$url: ${result.message}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            bulkImportSummary = buildString {
+                                append("Import complete: $installed installed, ")
+                                append("$skipped duplicates skipped, ${failures.size} failed.")
+                                failures.take(5).forEach { failure ->
+                                    append('\n')
+                                    append(failure)
+                                }
+                                if (failures.size > 5) {
+                                    append('\n')
+                                    append("And ${failures.size - 5} more failures.")
+                                }
+                            }
+                            if (installed > 0) bulkAddonUrls = ""
+                        } finally {
+                            bulkImporting = false
                         }
                     }
                 }
@@ -373,6 +456,58 @@ private sealed interface AddonInstallModalState {
         val reason: String,
     ) : AddonInstallModalState {
         override val isBusy: Boolean = false
+    }
+}
+
+@Composable
+private fun BulkAddonImportCard(
+    urls: String,
+    importing: Boolean,
+    summary: String?,
+    onUrlsChange: (String) -> Unit,
+    onImportClick: () -> Unit,
+) {
+    NuvioSurfaceCard {
+        Text(
+            text = "Bulk import manifest URLs",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "Paste manifest URLs separated by new lines or commas. Already installed addons will be skipped.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = urls,
+            onValueChange = onUrlsChange,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !importing,
+            placeholder = { Text("https://example.com/manifest.json") },
+            minLines = 4,
+            maxLines = 8,
+            singleLine = false,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+        NuvioPrimaryButton(
+            text = if (importing) "Importing addons..." else "Import addons",
+            enabled = urls.isNotBlank() && !importing,
+            onClick = onImportClick,
+        )
+        if (summary != null) {
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
