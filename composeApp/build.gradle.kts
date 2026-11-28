@@ -257,6 +257,14 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
     "src/iosAppStore/kotlin"
 }
 val iosFrameworkBundleId = "com.nuvio.media"
+val torrentEngineAar = layout.buildDirectory.file("native-engine/lib-nuvio-engine-android-0.1.6.aar")
+val prepareTorrentEngineAndroid = tasks.register<Exec>("prepareTorrentEngineAndroid") {
+    val preparationScript = rootProject.file("scripts/prepare-torrent-engine.sh")
+    inputs.file(preparationScript)
+    inputs.file(rootProject.file("scripts/nuvio-engine-torrent-download.patch"))
+    outputs.file(torrentEngineAar)
+    commandLine(preparationScript, "android", torrentEngineAar.get().asFile)
+}
 val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
@@ -468,7 +476,11 @@ kotlin {
                 implementation("androidx.media3:media3-effect:1.8.0")
                 implementation("androidx.annotation:annotation-experimental:1.3.1")
                 implementation(libs.mpv.android.lib)
-                implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
+                implementation(fileTree("libs") {
+                    include("lib-*.aar")
+                    exclude("lib-nuvio-engine-android-*.aar")
+                })
+                implementation(files(torrentEngineAar).builtBy(prepareTorrentEngineAndroid))
                 if (androidDistribution == "full") {
                     implementation(files("libs/quickjs-kt-android-1.0.5-nuvio.aar"))
                     implementation(libs.ksoup)

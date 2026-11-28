@@ -1,0 +1,1150 @@
+diff --git a/include/nuvio_engine/nuvio_engine.h b/include/nuvio_engine/nuvio_engine.h
+index 10e59e7..fb7581d 100644
+--- a/include/nuvio_engine/nuvio_engine.h
++++ b/include/nuvio_engine/nuvio_engine.h
+@@ -103,12 +103,18 @@ typedef struct nuvio_engine_event {
+     char stream_url[512];
+ } nuvio_engine_event;
+ 
++enum {
++    NUVIO_ENGINE_STREAM_PURPOSE_PLAYBACK = 0,
++    NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD = 1,
++};
++
+ typedef struct nuvio_engine_stream_request {
+     uint32_t struct_size;
+     const char* torrent_id;
+     uint32_t file_index;
+     uint32_t reserved_0;
+     const char* filename_hint;
++    uint32_t purpose;
+ } nuvio_engine_stream_request;
+ 
+ typedef struct nuvio_engine_file {
+diff --git a/include/nuvio_engine/piece_scheduler.hpp b/include/nuvio_engine/piece_scheduler.hpp
+index c1640db..380afd2 100644
+--- a/include/nuvio_engine/piece_scheduler.hpp
++++ b/include/nuvio_engine/piece_scheduler.hpp
+@@ -15,6 +15,7 @@ enum class PriorityClass : std::uint8_t {
+     playback = 2,
+     metadata_tail = 3,
+     readahead = 4,
++    download = 5,
+ };
+ 
+ struct PiecePriority {
+diff --git a/platform/android/engine/build.gradle.kts b/platform/android/engine/build.gradle.kts
+index 28b44c0..ce31288 100644
+--- a/platform/android/engine/build.gradle.kts
++++ b/platform/android/engine/build.gradle.kts
+@@ -1,6 +1,7 @@
+ import com.android.build.api.dsl.LibraryExtension
+ import org.gradle.api.publish.maven.MavenPublication
+ import org.gradle.api.tasks.Sync
++import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+ 
+ plugins {
+     id("com.android.library")
+@@ -8,6 +9,10 @@ plugins {
+     `maven-publish`
+ }
+ 
++kotlin {
++    compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
++}
++
+ val opensslVersion = "3.5.7"
+ val androidNdkVersion = "29.0.14206865"
+ val engineRepository = rootProject.layout.projectDirectory.dir("../..")
+diff --git a/platform/android/engine/src/main/cpp/CMakeLists.txt b/platform/android/engine/src/main/cpp/CMakeLists.txt
+index 6d16f51..bf002a8 100644
+--- a/platform/android/engine/src/main/cpp/CMakeLists.txt
++++ b/platform/android/engine/src/main/cpp/CMakeLists.txt
+@@ -16,6 +16,8 @@ set(OPENSSL_INCLUDE_DIR "${NUVIO_OPENSSL_ROOT}/include" CACHE PATH "" FORCE)
+ set(OPENSSL_SSL_LIBRARY "${NUVIO_OPENSSL_ROOT}/lib/libssl.a" CACHE FILEPATH "" FORCE)
+ set(OPENSSL_CRYPTO_LIBRARY "${NUVIO_OPENSSL_ROOT}/lib/libcrypto.a" CACHE FILEPATH "" FORCE)
+ set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
++# Use the target OpenSSL archives without host pkg-config link flags.
++set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig TRUE)
+ 
+ add_subdirectory("${NUVIO_ENGINE_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/nuvio-engine-core")
+ 
+diff --git a/platform/android/engine/src/main/cpp/jni_bridge.cpp b/platform/android/engine/src/main/cpp/jni_bridge.cpp
+index eb49598..392a3fa 100644
+--- a/platform/android/engine/src/main/cpp/jni_bridge.cpp
++++ b/platform/android/engine/src/main/cpp/jni_bridge.cpp
+@@ -372,7 +372,8 @@ Java_com_nuvio_engine_internal_NativeBridge_nativePrepareStream(
+     const jlong handle,
+     jstring torrent_id_value,
+     const jint file_index,
+-    jstring filename_hint_value
++    jstring filename_hint_value,
++    const jboolean background_download
+ ) {
+     std::string torrent_id;
+     std::string filename_hint;
+@@ -387,6 +388,9 @@ Java_com_nuvio_engine_internal_NativeBridge_nativePrepareStream(
+     request.torrent_id = torrent_id.c_str();
+     request.file_index = static_cast<std::uint32_t>(file_index);
+     request.filename_hint = filename_hint_value == nullptr ? nullptr : filename_hint.c_str();
++    request.purpose = background_download == JNI_TRUE
++        ? NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD
++        : NUVIO_ENGINE_STREAM_PURPOSE_PLAYBACK;
+     std::uint64_t request_id = 0;
+     const auto status = nuvio_engine_prepare_stream(
+         engine_from_handle(handle),
+diff --git a/platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngine.kt b/platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngine.kt
+index 996ed23..0ca97b8 100644
+--- a/platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngine.kt
++++ b/platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngine.kt
+@@ -127,6 +127,24 @@ public class NuvioEngine private constructor(
+         fileIndex: Int? = null,
+         filenameHint: String? = null,
+         minimumContiguousBytes: Long = 0L,
++    ): NuvioStream = prepareStreamInternal(
++        torrentId, fileIndex, filenameHint, minimumContiguousBytes, backgroundDownload = false,
++    )
++
++    public suspend fun prepareDownloadStream(
++        torrentId: String,
++        fileIndex: Int? = null,
++        filenameHint: String? = null,
++    ): NuvioStream = prepareStreamInternal(
++        torrentId, fileIndex, filenameHint, minimumContiguousBytes = 0L, backgroundDownload = true,
++    )
++
++    private suspend fun prepareStreamInternal(
++        torrentId: String,
++        fileIndex: Int?,
++        filenameHint: String?,
++        minimumContiguousBytes: Long,
++        backgroundDownload: Boolean,
+     ): NuvioStream {
+         validateTorrentId(torrentId)
+         require(fileIndex == null || fileIndex >= 0) { "file index must be non-negative" }
+@@ -139,6 +157,7 @@ public class NuvioEngine private constructor(
+                 torrentId,
+                 fileIndex ?: -1,
+                 filenameHint,
++                backgroundDownload,
+             )
+         }
+         val stream = NuvioStream(
+diff --git a/platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/NativeBridge.kt b/platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/NativeBridge.kt
+index 3ca6199..4ac767a 100644
+--- a/platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/NativeBridge.kt
++++ b/platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/NativeBridge.kt
+@@ -29,6 +29,7 @@ internal object NativeBridge {
+         torrentId: String,
+         fileIndex: Int,
+         filenameHint: String?,
++        backgroundDownload: Boolean,
+     ): LongArray
+     external fun nativeStopStream(handle: Long, streamId: String): LongArray
+     external fun nativeRemoveTorrent(handle: Long, torrentId: String): LongArray
+diff --git a/scripts/build-apple-xcframework.sh b/scripts/build-apple-xcframework.sh
+index 5ee4215..aa6c3f7 100755
+--- a/scripts/build-apple-xcframework.sh
++++ b/scripts/build-apple-xcframework.sh
+@@ -58,6 +58,7 @@ configure_and_build() {
+         -DOPENSSL_SSL_LIBRARY="$openssl_root/lib/libssl.a"
+         -DOPENSSL_CRYPTO_LIBRARY="$openssl_root/lib/libcrypto.a"
+         -DOPENSSL_USE_STATIC_LIBS=TRUE
++        -DCMAKE_DISABLE_FIND_PACKAGE_PkgConfig=TRUE
+         -DFETCHCONTENT_SOURCE_DIR_NUVIO_BOOST="$boost_source"
+         -DFETCHCONTENT_SOURCE_DIR_NUVIO_LIBTORRENT="$libtorrent_source"
+     )
+diff --git a/src/core/engine.cpp b/src/core/engine.cpp
+index 82a59ca..af4444e 100644
+--- a/src/core/engine.cpp
++++ b/src/core/engine.cpp
+@@ -505,10 +505,19 @@ nuvio_engine_status nuvio_engine_prepare_stream(
+                 std::numeric_limits<std::uint32_t>::max()
+             ? std::optional<std::size_t>{}
+             : std::optional<std::size_t>{request->file_index};
++        constexpr auto purpose_size = offsetof(nuvio_engine_stream_request, purpose) +
++            sizeof(request->purpose);
++        const auto purpose = request->struct_size >= purpose_size
++            ? request->purpose
++            : static_cast<std::uint32_t>(NUVIO_ENGINE_STREAM_PURPOSE_PLAYBACK);
++        if (purpose > NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD) {
++            return NUVIO_ENGINE_STATUS_INVALID_ARGUMENT;
++        }
+         return engine->runtime->prepare_stream(
+             *normalized,
+             requested_index,
+             std::move(filename_hint),
++            purpose == NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD,
+             *request_id
+         );
+     } catch (const std::bad_alloc&) {
+diff --git a/src/core/engine_runtime.cpp b/src/core/engine_runtime.cpp
+index 2a8c4ca..6302ab7 100644
+--- a/src/core/engine_runtime.cpp
++++ b/src/core/engine_runtime.cpp
+@@ -92,6 +92,7 @@ nuvio_engine_status EngineRuntime::prepare_stream(
+     std::string torrent_id,
+     const std::optional<std::size_t> requested_index,
+     std::string filename_hint,
++    bool background_download,
+     std::uint64_t& request_id
+ ) {
+     torrent::TorrentFileInfo selected_file;
+@@ -123,6 +124,7 @@ nuvio_engine_status EngineRuntime::prepare_stream(
+     command.torrent_id = std::move(torrent_id);
+     command.file_index = static_cast<std::uint32_t>(selected_index);
+     command.file = std::move(selected_file);
++    command.background_download = background_download;
+     return enqueue(std::move(command), request_id);
+ }
+ 
+@@ -275,7 +277,8 @@ void EngineRuntime::process_command(Command command) {
+                 command.request_id,
+                 command.torrent_id,
+                 command.file_index,
+-                std::move(command.file)
++                std::move(command.file),
++                command.background_download
+             );
+             break;
+         case CommandType::stop_stream:
+diff --git a/src/core/engine_runtime.hpp b/src/core/engine_runtime.hpp
+index d6eb057..39b1347 100644
+--- a/src/core/engine_runtime.hpp
++++ b/src/core/engine_runtime.hpp
+@@ -49,6 +49,7 @@ public:
+         std::string torrent_id,
+         std::optional<std::size_t> requested_index,
+         std::string filename_hint,
++        bool background_download,
+         std::uint64_t& request_id
+     );
+     [[nodiscard]] nuvio_engine_status remove_torrent(
+@@ -86,6 +87,7 @@ private:
+         std::string stream_id;
+         std::uint32_t file_index = 0;
+         torrent::TorrentFileInfo file;
++        bool background_download = false;
+         std::uint64_t target_bytes = 0;
+     };
+ 
+diff --git a/src/scheduler/stream_demand_plan.cpp b/src/scheduler/stream_demand_plan.cpp
+index 7e07ad0..a9a46e2 100644
+--- a/src/scheduler/stream_demand_plan.cpp
++++ b/src/scheduler/stream_demand_plan.cpp
+@@ -26,7 +26,30 @@ StreamDemandPlan build_stream_demand_plan(
+     const StreamWindow& window
+ ) {
+     StreamDemandPlan result;
++    std::map<std::uint32_t, PriorityClass> combined;
++    std::erase_if(demands, [&](const StreamDemand& demand) {
++        if (demand.kind != DemandKind::download) {
++            return false;
++        }
++        const auto schedule = build_piece_schedule({
++            demand.file_offset,
++            demand.file_size,
++            demand.piece_size,
++            demand.range,
++            0,
++            0,
++            0,
++            0,
++        });
++        for (const auto& piece : schedule) {
++            combined.try_emplace(piece.piece, PriorityClass::download);
++        }
++        return true;
++    });
+     if (demands.empty()) {
++        for (const auto& [piece, priority] : combined) {
++            result.pieces.push_back({piece, priority});
++        }
+         return result;
+     }
+ 
+@@ -61,7 +84,6 @@ StreamDemandPlan build_stream_demand_plan(
+         }
+     }
+ 
+-    std::map<std::uint32_t, PriorityClass> combined;
+     merge_schedule(combined, focused_schedule);
+     const auto index_bytes = std::min(
+         std::max(window.tail_bytes, focused.file_size / 64),
+diff --git a/src/scheduler/stream_demand_plan.hpp b/src/scheduler/stream_demand_plan.hpp
+index 8029381..7365d1b 100644
+--- a/src/scheduler/stream_demand_plan.hpp
++++ b/src/scheduler/stream_demand_plan.hpp
+@@ -13,6 +13,7 @@ enum class DemandKind : std::uint8_t {
+     reader,
+     anchor,
+     prefetch,
++    download,
+ };
+ 
+ struct StreamDemand {
+diff --git a/src/torrent/libtorrent_backend.cpp b/src/torrent/libtorrent_backend.cpp
+index cd93754..cf92263 100644
+--- a/src/torrent/libtorrent_backend.cpp
++++ b/src/torrent/libtorrent_backend.cpp
+@@ -6,6 +6,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <cctype>
++#include <deque>
+ #include <filesystem>
+ #include <functional>
+ #include <limits>
+@@ -42,6 +43,7 @@ namespace {
+ constexpr std::size_t maximum_session_state_size = 4 * 1024 * 1024;
+ constexpr std::size_t maximum_resume_state_size = 16 * 1024 * 1024;
+ constexpr std::size_t maximum_pending_disk_reclaims = 256;
++constexpr std::size_t maximum_pending_stream_prepares = 256;
+ constexpr int peer_connect_timeout_seconds = 3;
+ constexpr int peer_handshake_timeout_seconds = 20;
+ constexpr int peer_reconnect_floor_seconds = 4;
+@@ -148,6 +150,7 @@ lt::settings_pack make_settings(const ProtocolBackendConfig& config) {
+             lt::alert_category::performance_warning |
+             lt::alert_category::dht |
+             lt::alert_category::file_progress |
++            lt::alert_category::piece_progress |
+             lt::alert_category::block_progress
+     );
+     if (config.upload_mode == NUVIO_ENGINE_UPLOAD_LIMITED) {
+@@ -333,7 +336,8 @@ public:
+         const std::uint64_t request_id,
+         const std::string& id,
+         const std::uint32_t file_index,
+-        TorrentFileInfo file
++        TorrentFileInfo file,
++        const bool background_download
+     ) override {
+         const auto torrent = handles_.find(id);
+         if (torrent == handles_.end() || !torrent->second.is_valid()) {
+@@ -342,29 +346,17 @@ public:
+         focus_torrent(id);
+         activate_torrent(id, torrent->second);
+         touch_disk_cache(id);
+-        if (pending_prepares_.contains(id)) {
+-            throw std::runtime_error("stream preparation already pending");
+-        }
+         const auto metadata = torrent->second.torrent_file();
+         if (!metadata || file_index >= static_cast<std::uint32_t>(metadata->num_files())) {
+             throw std::runtime_error("selected torrent file is unavailable");
+         }
+-        PendingPrepare prepare{request_id, file_index, std::move(file)};
+-        if (torrent->second.status().is_seeding) {
+-            queued_events_.push_back(prepared_event(torrent->second, id, prepare));
+-            return;
++        auto& queue = pending_prepares_[id];
++        if (queue.size() >= maximum_pending_stream_prepares) {
++            throw std::runtime_error("too many pending stream preparations");
+         }
+-        pending_prepares_.emplace(id, std::move(prepare));
+-        try {
+-            std::vector<lt::download_priority_t> priorities(
+-                static_cast<std::size_t>(metadata->num_files()),
+-                lt::dont_download
+-            );
+-            priorities[static_cast<std::size_t>(file_index)] = lt::default_priority;
+-            torrent->second.prioritize_files(priorities);
+-        } catch (...) {
+-            pending_prepares_.erase(id);
+-            throw;
++        queue.push_back({request_id, file_index, std::move(file), background_download});
++        if (queue.size() == 1) {
++            start_pending_prepare(torrent->second, id, queued_events_);
+         }
+     }
+ 
+@@ -413,17 +405,7 @@ public:
+                 {},
+             });
+         }
+-        const auto prepare = pending_prepares_.find(id);
+-        if (prepare != pending_prepares_.end()) {
+-            queued_events_.push_back({
+-                BackendEventType::torrent_error,
+-                prepare->second.request_id,
+-                id,
+-                "stream preparation cancelled by torrent removal",
+-                {},
+-            });
+-            pending_prepares_.erase(prepare);
+-        }
++        cancel_pending_prepares(id, "stream preparation cancelled by torrent removal", queued_events_);
+     }
+ 
+     void stop_stream(
+@@ -435,6 +417,7 @@ public:
+             mark_warm(torrent_id);
+             const auto torrent = handles_.find(torrent_id);
+             if (torrent != handles_.end() && torrent->second.is_valid() &&
++                !pending_prepares_.contains(torrent_id) &&
+                 !stream_bridge_->has_stream_for_torrent(torrent_id)) {
+                 try {
+                     torrent->second.set_flags(lt::torrent_flags::upload_mode);
+@@ -505,6 +488,7 @@ public:
+             mark_warm(expired.torrent_id);
+             const auto torrent = handles_.find(expired.torrent_id);
+             if (torrent != handles_.end() && torrent->second.is_valid() &&
++                !pending_prepares_.contains(expired.torrent_id) &&
+                 !stream_bridge_->has_stream_for_torrent(expired.torrent_id)) {
+                 try {
+                     torrent->second.set_flags(lt::torrent_flags::upload_mode);
+@@ -532,6 +516,8 @@ public:
+                 stream_bridge_->handle_block_finished(*block);
+             } else if (const auto* piece = lt::alert_cast<lt::read_piece_alert>(alert)) {
+                 stream_bridge_->handle_read_piece(*piece);
++            } else if (const auto* verified = lt::alert_cast<lt::piece_finished_alert>(alert)) {
++                stream_bridge_->handle_piece_finished(*verified);
+             } else if (const auto* failed_hash = lt::alert_cast<lt::hash_failed_alert>(alert)) {
+                 stream_bridge_->handle_hash_failed(*failed_hash);
+             } else if (const auto* metadata = lt::alert_cast<lt::metadata_received_alert>(alert)) {
+@@ -734,6 +720,7 @@ private:
+         std::uint64_t request_id;
+         std::uint32_t file_index;
+         TorrentFileInfo file;
++        bool background_download;
+     };
+ 
+     struct TorrentTelemetry {
+@@ -912,7 +899,7 @@ private:
+ 
+     void focus_torrent(const std::string& requested_id) {
+         for (const auto& [id, handle] : handles_) {
+-            if (id == requested_id || !handle.is_valid() ||
++            if (id == requested_id || !handle.is_valid() || pending_prepares_.contains(id) ||
+                 stream_bridge_->has_stream_for_torrent(id)) {
+                 continue;
+             }
+@@ -1139,7 +1126,9 @@ private:
+     }
+ 
+     void mark_warm(const std::string& id) {
+-        warm_since_.try_emplace(id, std::chrono::steady_clock::now());
++        if (!pending_prepares_.contains(id) && !stream_bridge_->has_stream_for_torrent(id)) {
++            warm_since_.try_emplace(id, std::chrono::steady_clock::now());
++        }
+     }
+ 
+     void touch_disk_cache(const std::string& id) {
+@@ -1286,7 +1275,9 @@ private:
+ 
+     void activate_torrent(const std::string& id, const lt::torrent_handle& handle) {
+         pending_cache_unloads_.erase(id);
+-        handle.set_flags(lt::torrent_flags::upload_mode);
++        if (!stream_bridge_->has_stream_for_torrent(id)) {
++            handle.set_flags(lt::torrent_flags::upload_mode);
++        }
+         handle.set_flags(
+             lt::torrent_flags_t{},
+             lt::torrent_flags::paused | lt::torrent_flags::auto_managed
+@@ -1568,7 +1559,8 @@ private:
+             handle,
+             id,
+             prepare.file_index,
+-            prepare.file
++            prepare.file,
++            prepare.background_download
+         );
+         event.stream_id = stream.stream_id;
+         event.stream_url = stream.url;
+@@ -1692,6 +1684,58 @@ private:
+         });
+     }
+ 
++    void cancel_pending_prepares(
++        const std::string& id,
++        const std::string& message,
++        std::vector<BackendEvent>& events
++    ) {
++        const auto pending = pending_prepares_.find(id);
++        if (pending == pending_prepares_.end()) {
++            return;
++        }
++        for (const auto& prepare : pending->second) {
++            events.push_back({BackendEventType::torrent_error, prepare.request_id, id, message, {}});
++        }
++        pending_prepares_.erase(pending);
++    }
++
++    void start_pending_prepare(
++        const lt::torrent_handle& handle,
++        const std::string& id,
++        std::vector<BackendEvent>& events
++    ) {
++        const auto pending = pending_prepares_.find(id);
++        if (pending == pending_prepares_.end()) {
++            return;
++        }
++        auto& queue = pending->second;
++        while (!queue.empty()) {
++            const auto& prepare = queue.front();
++            try {
++                if (!handle.status().is_seeding) {
++                    const auto metadata = handle.torrent_file();
++                    if (!metadata) {
++                        throw std::runtime_error("selected torrent file is unavailable");
++                    }
++                    auto priorities = stream_bridge_->has_stream_for_torrent(id)
++                        ? handle.get_file_priorities()
++                        : std::vector<lt::download_priority_t>{};
++                    priorities.resize(metadata->num_files(), lt::dont_download);
++                    priorities[prepare.file_index] = lt::default_priority;
++                    handle.prioritize_files(priorities);
++                    return;
++                }
++                events.push_back(prepared_event(handle, id, prepare));
++            } catch (const std::exception& error) {
++                events.push_back({
++                    BackendEventType::torrent_error, prepare.request_id, id, error.what(), {},
++                });
++            }
++            queue.pop_front();
++        }
++        pending_prepares_.erase(pending);
++    }
++
+     void handle_file_priority(
+         const lt::file_prio_alert& alert,
+         std::vector<BackendEvent>& events
+@@ -1704,7 +1748,7 @@ private:
+         if (alert.error) {
+             events.push_back({
+                 BackendEventType::torrent_error,
+-                pending->second.request_id,
++                pending->second.front().request_id,
+                 id,
+                 alert.error.message(),
+                 {},
+@@ -1712,7 +1756,7 @@ private:
+         } else {
+             try {
+                 alert.handle.unset_flags(lt::torrent_flags::upload_mode);
+-                events.push_back(prepared_event(alert.handle, id, pending->second));
++                events.push_back(prepared_event(alert.handle, id, pending->second.front()));
+                 request_resume_save(
+                     alert.handle,
+                     lt::torrent_handle::only_if_modified |
+@@ -1721,14 +1765,15 @@ private:
+             } catch (const std::exception& error) {
+                 events.push_back({
+                     BackendEventType::torrent_error,
+-                    pending->second.request_id,
++                    pending->second.front().request_id,
+                     id,
+                     error.what(),
+                     {},
+                 });
+             }
+         }
+-        pending_prepares_.erase(pending);
++        pending->second.pop_front();
++        start_pending_prepare(alert.handle, id, events);
+     }
+ 
+     void handle_file_error(
+@@ -1750,14 +1795,7 @@ private:
+             }
+             return;
+         }
+-        events.push_back({
+-            BackendEventType::torrent_error,
+-            pending->second.request_id,
+-            id,
+-            alert.error.message(),
+-            {},
+-        });
+-        pending_prepares_.erase(pending);
++        cancel_pending_prepares(id, alert.error.message(), events);
+     }
+ 
+     void handle_removed(
+@@ -1781,7 +1819,7 @@ private:
+         warm_since_.erase(id);
+         quiesced_torrents_.erase(id);
+         stream_bridge_->remove_torrent(id);
+-        pending_prepares_.erase(id);
++        cancel_pending_prepares(id, "torrent was removed", events);
+         pending_resume_saves_.erase(context);
+         if (!cache_removal) {
+             try {
+@@ -1823,7 +1861,7 @@ private:
+     std::unordered_map<std::string, std::chrono::steady_clock::time_point> warm_since_;
+     std::unordered_set<std::string> quiesced_torrents_;
+     std::vector<PendingDiskReclaim> pending_disk_reclaims_;
+-    std::unordered_map<std::string, PendingPrepare> pending_prepares_;
++    std::unordered_map<std::string, std::deque<PendingPrepare>> pending_prepares_;
+     std::unordered_map<std::string, std::uint64_t> pending_removals_;
+     std::unordered_set<RequestContext*> pending_resume_saves_;
+     std::unordered_set<std::string> pending_cache_unloads_;
+diff --git a/src/torrent/libtorrent_stream_bridge.cpp b/src/torrent/libtorrent_stream_bridge.cpp
+index 25fa513..fc0ab8a 100644
+--- a/src/torrent/libtorrent_stream_bridge.cpp
++++ b/src/torrent/libtorrent_stream_bridge.cpp
+@@ -141,6 +141,7 @@ lt::download_priority_t download_priority_for(
+     case scheduler::PriorityClass::metadata_tail:
+         return cold ? lt::download_priority_t{6} : lt::top_priority;
+     case scheduler::PriorityClass::readahead:
++    case scheduler::PriorityClass::download:
+         return lt::low_priority;
+     }
+     return lt::dont_download;
+@@ -241,6 +242,7 @@ struct LibtorrentStreamBridge::Impl {
+         std::uint64_t file_size = 0;
+         std::filesystem::path payload_path;
+         std::shared_ptr<StreamActivity> activity;
++        bool background_download = false;
+         std::shared_ptr<StreamCounters> counters = std::make_shared<StreamCounters>();
+     };
+ 
+@@ -290,6 +292,7 @@ struct LibtorrentStreamBridge::Impl {
+         StreamRoute route;
+         http::ByteRange range{};
+         bool prefetch = false;
++        std::uint64_t sequence = 0;
+     };
+ 
+     struct CurrentSchedule {
+@@ -333,6 +336,10 @@ struct LibtorrentStreamBridge::Impl {
+         const http::ByteRange response_range,
+         const std::uint64_t position
+     ) {
++        if (route.background_download) {
++            constexpr std::uint64_t download_window = 4 * 1024 * 1024;
++            return {position, position + std::min(download_window - 1, response_range.end - position)};
++        }
+         return scheduler::blocking_demand_range(
+             response_range,
+             position,
+@@ -381,7 +388,8 @@ struct LibtorrentStreamBridge::Impl {
+         const lt::torrent_handle& handle,
+         const std::string& id,
+         const std::uint32_t file_index,
+-        const TorrentFileInfo& file
++        const TorrentFileInfo& file,
++        const bool background_download
+     ) {
+         if (shutting_down.load()) {
+             throw std::runtime_error("stream bridge is shutting down");
+@@ -405,21 +413,9 @@ struct LibtorrentStreamBridge::Impl {
+                 handle.status(lt::torrent_handle::query_save_path).save_path
+             )),
+             std::make_shared<StreamActivity>(std::chrono::steady_clock::now()),
++            background_download,
+         };
+         route.target = "/stream/" + route.stream_id;
+-        std::vector<std::string> previous_streams;
+-        {
+-            std::lock_guard lock(routes_mutex);
+-            for (const auto& [target, existing] : routes) {
+-                static_cast<void>(target);
+-                if (existing.torrent_id == id) {
+-                    previous_streams.push_back(existing.stream_id);
+-                }
+-            }
+-        }
+-        for (const auto& stream_id : previous_streams) {
+-            static_cast<void>(stop_stream(stream_id));
+-        }
+         {
+             std::lock_guard lock(routes_mutex);
+             routes.insert_or_assign(route.target, route);
+@@ -427,14 +423,15 @@ struct LibtorrentStreamBridge::Impl {
+         next_progress_sample = {};
+         last_ready_pieces.erase(id);
+         revoked_torrents.erase(id);
+-        if (route.file_size > 0) {
+-            anchors.insert_or_assign(id, StreamAnchor{
++        if (route.file_size > 0 && !background_download) {
++            anchors.insert_or_assign(route.stream_id, StreamAnchor{
+                 route,
+                 bounded_demand_range(route, {0, route.file_size - 1}, 0),
+                 true,
++                next_demand_id.fetch_add(1),
+             });
+-            recompute_schedule(id);
+         }
++        recompute_schedule(id, true);
+         return {
+             route.stream_id,
+             "http://127.0.0.1:" + std::to_string(server->port()) + route.target,
+@@ -607,7 +604,7 @@ struct LibtorrentStreamBridge::Impl {
+             {
+                 std::unique_lock lock(waiter->mutex);
+                 const auto unverified_ready = [&] {
+-                    return payload_readable &&
++                    return !route.background_download && payload_readable &&
+                         finished_run_end(waiter->finished_blocks, cursor, slice.end) > cursor;
+                 };
+                 waiter->ready.wait_until(lock, deadline, [&] {
+@@ -893,9 +890,7 @@ struct LibtorrentStreamBridge::Impl {
+     }
+ 
+     void erase_anchor(const std::string& stream_id) {
+-        std::erase_if(anchors, [&](const auto& anchor) {
+-            return anchor.second.route.stream_id == stream_id;
+-        });
++        anchors.erase(stream_id);
+     }
+ 
+     void process_piece_request(const HttpCommand& command, ActiveDemand& demand) {
+@@ -1025,6 +1020,21 @@ struct LibtorrentStreamBridge::Impl {
+         }
+     }
+ 
++    void handle_piece_finished(const lt::piece_finished_alert& alert) {
++        const PieceKey key{
++            torrent_id(alert.handle),
++            static_cast<std::uint32_t>(static_cast<int>(alert.piece_index)),
++        };
++        if (piece_waiters.contains(key) &&
++            requested_reads.try_emplace(key, std::chrono::steady_clock::now()).second) {
++            try {
++                alert.handle.read_piece(alert.piece_index);
++            } catch (...) {
++                requested_reads.erase(key);
++            }
++        }
++    }
++
+     void handle_hash_failed(const lt::hash_failed_alert& alert) {
+         const PieceKey key{
+             torrent_id(alert.handle),
+@@ -1038,15 +1048,17 @@ struct LibtorrentStreamBridge::Impl {
+         publish_partial(key);
+     }
+ 
+-    void recompute_schedule(const std::string& id) {
++    void recompute_schedule(const std::string& id, const bool refresh_priorities = false) {
+         std::map<std::uint32_t, scheduler::PriorityClass> combined;
+         std::optional<lt::torrent_handle> handle;
+         std::vector<scheduler::StreamDemand> demands;
++        bool has_playback_reader = false;
+         for (const auto& [demand_id, demand] : active_demands) {
+             if (demand.route.torrent_id != id || !demand.needs_data) {
+                 continue;
+             }
+             handle = demand.route.handle;
++            has_playback_reader |= !demand.route.background_download;
+             const auto blocking_piece = static_cast<std::uint32_t>(
+                 (demand.route.file_offset + demand.range.start) / demand.route.piece_size
+             );
+@@ -1057,29 +1069,41 @@ struct LibtorrentStreamBridge::Impl {
+                 demand.route.file_size,
+                 demand.route.piece_size,
+                 demand.range,
+-                scheduler::DemandKind::reader,
++                demand.route.background_download
++                    ? scheduler::DemandKind::download
++                    : scheduler::DemandKind::reader,
+                 partial == partial_blocks.end() ||
+                     std::ranges::none_of(partial->second, [](const bool finished) {
+                         return finished;
+                     }),
+             });
+         }
+-        const auto anchor = anchors.find(id);
+-        if (demands.empty() && anchor != anchors.end()) {
+-            handle = anchor->second.route.handle;
+-            demands.push_back({
+-                0,
+-                anchor->second.route.file_offset,
+-                anchor->second.route.file_size,
+-                anchor->second.route.piece_size,
+-                anchor->second.range,
+-                anchor->second.prefetch
+-                    ? scheduler::DemandKind::prefetch
+-                    : scheduler::DemandKind::anchor,
+-            });
++        if (!has_playback_reader) {
++            const StreamAnchor* latest = nullptr;
++            for (const auto& [stream_id, anchor] : anchors) {
++                if (anchor.route.torrent_id == id &&
++                    (latest == nullptr || anchor.sequence > latest->sequence)) {
++                    latest = &anchor;
++                }
++            }
++            if (latest != nullptr) {
++                handle = latest->route.handle;
++                demands.push_back({
++                    0,
++                    latest->route.file_offset,
++                    latest->route.file_size,
++                    latest->route.piece_size,
++                    latest->range,
++                    latest->prefetch ? scheduler::DemandKind::prefetch
++                                     : scheduler::DemandKind::anchor,
++                });
++            }
+         }
+         std::map<std::uint32_t, int> first_blocks;
+         for (const auto& demand : demands) {
++            if (demand.kind == scheduler::DemandKind::download) {
++                continue;
++            }
+             const auto absolute = demand.file_offset + demand.range.start;
+             first_blocks.insert_or_assign(
+                 static_cast<std::uint32_t>(absolute / demand.piece_size),
+@@ -1097,10 +1121,11 @@ struct LibtorrentStreamBridge::Impl {
+         }
+         if (const auto focused = active_demands.find(plan.focused_demand_id);
+             focused != active_demands.end()) {
+-            anchors.insert_or_assign(id, StreamAnchor{
++            anchors.insert_or_assign(focused->second.route.stream_id, StreamAnchor{
+                 focused->second.route,
+                 focused->second.range,
+                 false,
++                focused->first,
+             });
+         }
+         const auto previous = current_schedules.find(id);
+@@ -1124,7 +1149,7 @@ struct LibtorrentStreamBridge::Impl {
+         }
+ 
+         try {
+-            if (previous == current_schedules.end()) {
++            if (refresh_priorities || previous == current_schedules.end()) {
+                 const auto metadata = handle->torrent_file();
+                 if (metadata) {
+                     std::vector<lt::download_priority_t> priorities(
+@@ -1353,7 +1378,9 @@ struct LibtorrentStreamBridge::Impl {
+ 
+     void remove_torrent(const std::string& id) {
+         revoked_torrents.insert(id);
+-        anchors.erase(id);
++        std::erase_if(anchors, [&](const auto& anchor) {
++            return anchor.second.route.torrent_id == id;
++        });
+         retention.erase(id);
+         resume_save_requests.erase(id);
+         piece_cache.erase_torrent(id);
+@@ -1646,7 +1673,12 @@ struct LibtorrentStreamBridge::Impl {
+             }
+         }
+         for (const auto& route : streams) {
+-            if (revoked_torrents.contains(route.torrent_id)) {
++            if (revoked_torrents.contains(route.torrent_id) ||
++                route.background_download ||
++                std::ranges::any_of(streams, [&](const StreamRoute& other) {
++                    return other.torrent_id == route.torrent_id &&
++                        other.stream_id != route.stream_id;
++                })) {
+                 continue;
+             }
+             try {
+@@ -1660,7 +1692,7 @@ struct LibtorrentStreamBridge::Impl {
+         const StreamRoute& route,
+         const std::chrono::steady_clock::time_point now
+     ) {
+-        const auto anchor = anchors.find(route.torrent_id);
++        const auto anchor = anchors.find(route.stream_id);
+         if (anchor == anchors.end() || route.piece_size == 0 || !route.handle.is_valid() ||
+             !route.handle.in_session()) {
+             return;
+@@ -2009,9 +2041,10 @@ PreparedStream LibtorrentStreamBridge::register_stream(
+     const lt::torrent_handle& handle,
+     const std::string& torrent_id,
+     const std::uint32_t file_index,
+-    const TorrentFileInfo& file
++    const TorrentFileInfo& file,
++    const bool background_download
+ ) {
+-    return impl_->register_stream(handle, torrent_id, file_index, file);
++    return impl_->register_stream(handle, torrent_id, file_index, file, background_download);
+ }
+ 
+ void LibtorrentStreamBridge::poll() {
+@@ -2030,6 +2063,10 @@ void LibtorrentStreamBridge::handle_block_finished(const lt::block_finished_aler
+     impl_->handle_block_finished(alert);
+ }
+ 
++void LibtorrentStreamBridge::handle_piece_finished(const lt::piece_finished_alert& alert) {
++    impl_->handle_piece_finished(alert);
++}
++
+ void LibtorrentStreamBridge::handle_hash_failed(const lt::hash_failed_alert& alert) {
+     impl_->handle_hash_failed(alert);
+ }
+diff --git a/src/torrent/libtorrent_stream_bridge.hpp b/src/torrent/libtorrent_stream_bridge.hpp
+index cab56db..3af565f 100644
+--- a/src/torrent/libtorrent_stream_bridge.hpp
++++ b/src/torrent/libtorrent_stream_bridge.hpp
+@@ -51,13 +51,15 @@ public:
+         const lt::torrent_handle& handle,
+         const std::string& torrent_id,
+         std::uint32_t file_index,
+-        const TorrentFileInfo& file
++        const TorrentFileInfo& file,
++        bool background_download
+     );
+     void set_wakeup(std::function<void()> wake);
+     void poll();
+     [[nodiscard]] std::vector<StoppedStream> pop_expired_streams();
+     void handle_read_piece(const lt::read_piece_alert& alert);
+     void handle_block_finished(const lt::block_finished_alert& alert);
++    void handle_piece_finished(const lt::piece_finished_alert& alert);
+     void handle_hash_failed(const lt::hash_failed_alert& alert);
+     [[nodiscard]] std::string stop_stream(const std::string& stream_id);
+     [[nodiscard]] bool has_stream_for_torrent(const std::string& torrent_id);
+diff --git a/src/torrent/protocol_backend.hpp b/src/torrent/protocol_backend.hpp
+index 0629e17..852df76 100644
+--- a/src/torrent/protocol_backend.hpp
++++ b/src/torrent/protocol_backend.hpp
+@@ -152,7 +152,8 @@ public:
+         std::uint64_t request_id,
+         const std::string& torrent_id,
+         std::uint32_t file_index,
+-        TorrentFileInfo file
++        TorrentFileInfo file,
++        bool background_download
+     ) = 0;
+     virtual void remove_torrent(
+         std::uint64_t request_id,
+diff --git a/tests/engine_api_test.cpp b/tests/engine_api_test.cpp
+index 000bd0e..c541d5a 100644
+--- a/tests/engine_api_test.cpp
++++ b/tests/engine_api_test.cpp
+@@ -11,6 +11,7 @@
+ #include <fstream>
+ #include <future>
+ #include <limits>
++#include <memory>
+ #include <string_view>
+ #include <thread>
+ 
+@@ -645,6 +646,91 @@ NUVIO_TEST("torrent bytes expose a canonical zero-based metadata snapshot") {
+     nuvio_engine_destroy(engine);
+ }
+ 
++NUVIO_TEST("playback and download prepare distinct files and keep independent routes") {
++    EngineTestDirectories directories;
++    std::string torrent =
++        "d4:infod5:filesld6:lengthi16384e4:pathl8:test.mp4eed6:lengthi16384e"
++        "4:pathl9:other.mkveee4:name4:test12:piece lengthi16384e6:pieces40:";
++    torrent.append(40, '\0');
++    torrent += "ee";
++
++    nuvio_engine_config config;
++    nuvio_engine_config_init(&config);
++    directories.apply(config);
++    nuvio_engine* raw_engine = nullptr;
++    NUVIO_EXPECT_EQ(nuvio_engine_create(&config, &raw_engine), NUVIO_ENGINE_STATUS_OK);
++    const auto engine = std::unique_ptr<nuvio_engine, decltype(&nuvio_engine_destroy)>(
++        raw_engine, &nuvio_engine_destroy
++    );
++    const auto next_event = [&](const std::uint64_t id, const nuvio_engine_event_type type) {
++        nuvio_engine_event event;
++        nuvio_engine_event_init(&event);
++        for (int attempt = 0; attempt < 200; ++attempt) {
++            const auto status = nuvio_engine_poll_event(engine.get(), &event);
++            if (status == NUVIO_ENGINE_STATUS_NO_EVENT) {
++                std::this_thread::sleep_for(std::chrono::milliseconds(10));
++                continue;
++            }
++            NUVIO_EXPECT_EQ(status, NUVIO_ENGINE_STATUS_OK);
++            if (event.request_id == id && event.type == type) {
++                return event;
++            }
++            if (event.request_id == id && event.type == NUVIO_ENGINE_EVENT_TORRENT_ERROR) {
++                throw std::runtime_error(event.message);
++            }
++        }
++        throw std::runtime_error("timed out waiting for torrent engine event");
++    };
++
++    nuvio_engine_torrent_request add;
++    nuvio_engine_torrent_request_init(&add);
++    add.source_type = NUVIO_ENGINE_TORRENT_SOURCE_DATA;
++    add.torrent_data = reinterpret_cast<const std::uint8_t*>(torrent.data());
++    add.torrent_data_size = torrent.size();
++    std::uint64_t add_id = 0;
++    NUVIO_EXPECT_EQ(nuvio_engine_add_torrent(engine.get(), &add, &add_id), NUVIO_ENGINE_STATUS_OK);
++    const auto metadata = next_event(add_id, NUVIO_ENGINE_EVENT_TORRENT_METADATA_READY);
++
++    nuvio_engine_stream_request prepare;
++    nuvio_engine_stream_request_init(&prepare);
++    prepare.torrent_id = metadata.torrent_id;
++    prepare.file_index = 0;
++    std::uint64_t playback_id = 0;
++    NUVIO_EXPECT_EQ(
++        nuvio_engine_prepare_stream(engine.get(), &prepare, &playback_id), NUVIO_ENGINE_STATUS_OK
++    );
++    prepare.file_index = 1;
++    prepare.purpose = NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD;
++    std::uint64_t download_id = 0;
++    NUVIO_EXPECT_EQ(
++        nuvio_engine_prepare_stream(engine.get(), &prepare, &download_id), NUVIO_ENGINE_STATUS_OK
++    );
++
++    const auto playback = next_event(playback_id, NUVIO_ENGINE_EVENT_STREAM_PREPARED);
++    const auto download = next_event(download_id, NUVIO_ENGINE_EVENT_STREAM_PREPARED);
++    NUVIO_EXPECT_EQ(playback.file_index, std::uint32_t(0));
++    NUVIO_EXPECT_EQ(download.file_index, std::uint32_t(1));
++    NUVIO_EXPECT_TRUE(std::string(playback.stream_id) != download.stream_id);
++
++    const auto head = [](const char* url) {
++        const auto local = parse_local_stream_url(url);
++        return nuvio::test::send_http_request(
++            local.port,
++            "HEAD " + local.target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
++        );
++    };
++    NUVIO_EXPECT_TRUE(head(playback.stream_url).starts_with("HTTP/1.1 200 OK\r\n"));
++    NUVIO_EXPECT_TRUE(head(download.stream_url).starts_with("HTTP/1.1 200 OK\r\n"));
++    std::uint64_t stop_id = 0;
++    NUVIO_EXPECT_EQ(
++        nuvio_engine_stop_stream(engine.get(), download.stream_id, &stop_id),
++        NUVIO_ENGINE_STATUS_OK
++    );
++    static_cast<void>(next_event(stop_id, NUVIO_ENGINE_EVENT_STREAM_STOPPED));
++    NUVIO_EXPECT_TRUE(head(playback.stream_url).starts_with("HTTP/1.1 200 OK\r\n"));
++    NUVIO_EXPECT_TRUE(head(download.stream_url).starts_with("HTTP/1.1 404 Not Found\r\n"));
++}
++
+ NUVIO_TEST("torrent resume stays inert across restart and loads on demand") {
+     EngineTestDirectories directories;
+     std::string torrent =
+@@ -1520,6 +1606,7 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+ 
+     nuvio_engine_stream_request stream_request;
+     nuvio_engine_stream_request_init(&stream_request);
++    stream_request.struct_size = offsetof(nuvio_engine_stream_request, purpose);
+     stream_request.torrent_id = torrent_id.c_str();
+     stream_request.file_index = 0;
+     std::uint64_t prepare_request_id = 0;
+@@ -1528,9 +1615,19 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+         NUVIO_ENGINE_STATUS_OK
+     );
+ 
++    stream_request.struct_size = sizeof(stream_request);
++    stream_request.purpose = NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD;
++    std::uint64_t download_request_id = 0;
++    NUVIO_EXPECT_EQ(
++        nuvio_engine_prepare_stream(engine, &stream_request, &download_request_id),
++        NUVIO_ENGINE_STATUS_OK
++    );
++
++    std::string download_url;
++    std::string download_id;
+     std::string stream_url;
+     std::string stream_id;
+-    for (int attempt = 0; attempt < 200 && stream_url.empty(); ++attempt) {
++    for (int attempt = 0; attempt < 200 && (stream_url.empty() || download_url.empty()); ++attempt) {
+         const auto status = nuvio_engine_poll_event(engine, &event);
+         if (status == NUVIO_ENGINE_STATUS_NO_EVENT) {
+             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+@@ -1542,8 +1639,16 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+             stream_url = event.stream_url;
+             stream_id = event.stream_id;
+         }
++        if (event.type == NUVIO_ENGINE_EVENT_STREAM_PREPARED &&
++            event.request_id == download_request_id) {
++            download_url = event.stream_url;
++            download_id = event.stream_id;
++        }
+     }
+     NUVIO_EXPECT_TRUE(!stream_url.empty());
++    NUVIO_EXPECT_TRUE(!download_url.empty());
++    NUVIO_EXPECT_TRUE(stream_id != download_id);
++    const auto download = parse_local_stream_url(download_url);
+     const auto local = parse_local_stream_url(stream_url);
+ 
+     const auto head = nuvio::test::send_http_request(
+@@ -1564,8 +1669,8 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+     NUVIO_EXPECT_TRUE(partial.ends_with("es"));
+ 
+     const auto full = nuvio::test::send_http_request(
+-        local.port,
+-        "GET " + local.target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
++        download.port,
++        "GET " + download.target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+     );
+     NUVIO_EXPECT_TRUE(full.find("HTTP/1.1 200 OK\r\n") == 0);
+     NUVIO_EXPECT_TRUE(full.ends_with("test"));
+@@ -1583,7 +1688,7 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+     }
+     NUVIO_EXPECT_EQ(stats.active_torrents, std::uint32_t(1));
+-    NUVIO_EXPECT_EQ(stats.active_streams, std::uint32_t(1));
++    NUVIO_EXPECT_EQ(stats.active_streams, std::uint32_t(2));
+     NUVIO_EXPECT_EQ(stats.active_http_requests, std::uint32_t(0));
+     NUVIO_EXPECT_EQ(stats.pending_piece_reads, std::uint32_t(0));
+     NUVIO_EXPECT_EQ(stats.memory_cache_capacity_bytes, config.memory_cache_capacity_bytes);
+@@ -1600,7 +1705,7 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+             NUVIO_ENGINE_STATUS_OK
+         );
+         if (stream_stats.contiguous_ready_bytes == 4 &&
+-            stream_stats.delivered_bytes >= 6) {
++            stream_stats.delivered_bytes >= 2) {
+             break;
+         }
+         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+@@ -1609,7 +1714,7 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+     NUVIO_EXPECT_EQ(stream_stats.file_size, std::uint64_t(4));
+     NUVIO_EXPECT_EQ(stream_stats.contiguous_ready_bytes, std::uint64_t(4));
+     NUVIO_EXPECT_EQ(stream_stats.verified_file_bytes, std::uint64_t(4));
+-    NUVIO_EXPECT_TRUE(stream_stats.delivered_bytes >= 6);
++    NUVIO_EXPECT_TRUE(stream_stats.delivered_bytes >= 2);
+ 
+     const auto denied = nuvio::test::send_http_request(
+         local.port,
+@@ -1642,6 +1747,29 @@ NUVIO_TEST("prepared stream URL serves verified full and partial torrent bytes")
+         "GET " + local.target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+     );
+     NUVIO_EXPECT_TRUE(stopped.find("HTTP/1.1 404 Not Found\r\n") == 0);
++    const auto surviving_download = nuvio::test::send_http_request(
++        download.port,
++        "GET " + download.target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
++    );
++    NUVIO_EXPECT_TRUE(surviving_download.find("HTTP/1.1 200 OK\r\n") == 0);
++    NUVIO_EXPECT_TRUE(surviving_download.ends_with("test"));
++
++    NUVIO_EXPECT_EQ(
++        nuvio_engine_stop_stream(engine, download_id.c_str(), &stop_request_id),
++        NUVIO_ENGINE_STATUS_OK
++    );
++    received_stopped = false;
++    for (int attempt = 0; attempt < 200 && !received_stopped; ++attempt) {
++        const auto status = nuvio_engine_poll_event(engine, &event);
++        if (status == NUVIO_ENGINE_STATUS_NO_EVENT) {
++            std::this_thread::sleep_for(std::chrono::milliseconds(10));
++            continue;
++        }
++        NUVIO_EXPECT_EQ(status, NUVIO_ENGINE_STATUS_OK);
++        received_stopped = event.type == NUVIO_ENGINE_EVENT_STREAM_STOPPED &&
++            event.request_id == stop_request_id;
++    }
++    NUVIO_EXPECT_TRUE(received_stopped);
+     std::size_t warm_file_count = 0;
+     NUVIO_EXPECT_EQ(
+         nuvio_engine_get_file_count(engine, torrent_id.c_str(), &warm_file_count),
+diff --git a/tests/stream_demand_plan_test.cpp b/tests/stream_demand_plan_test.cpp
+index dcd1a33..7fd26bf 100644
+--- a/tests/stream_demand_plan_test.cpp
++++ b/tests/stream_demand_plan_test.cpp
+@@ -265,3 +265,23 @@ NUVIO_TEST("no demands produce an empty plan") {
+     NUVIO_EXPECT_TRUE(plan.pieces.empty());
+     NUVIO_EXPECT_TRUE(plan.deadline_order.empty());
+ }
++
++NUVIO_TEST("download advances at background priority without taking playback deadlines") {
++    const auto playback = demand(10, 0);
++    auto download = demand(20, 32);
++    download.kind = DemandKind::download;
++
++    const auto playback_only = three_range_plan({playback});
++    const auto concurrent = three_range_plan({download, playback});
++    NUVIO_EXPECT_EQ(concurrent.focused_demand_id, playback.id);
++    NUVIO_EXPECT_EQ(concurrent.deadline_order, playback_only.deadline_order);
++    NUVIO_EXPECT_EQ(priority_for(concurrent, 32), std::optional(PriorityClass::download));
++
++    const auto download_only = three_range_plan({download});
++    NUVIO_EXPECT_TRUE(download_only.deadline_order.empty());
++    NUVIO_EXPECT_EQ(priority_for(download_only, 32), std::optional(PriorityClass::download));
++
++    download.range = playback.range;
++    const auto overlapping = three_range_plan({download, playback});
++    NUVIO_EXPECT_EQ(overlapping.pieces, playback_only.pieces);
++}

@@ -1,5 +1,18 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.p2p.P2pStreamingEngine
+
+internal suspend fun <T> withDownloadSource(
+    item: DownloadItem,
+    transfer: suspend (DownloadItem) -> T,
+): T {
+    val torrent = item.torrent ?: return transfer(item)
+    return P2pStreamingEngine.withDownloadStream(torrent) { route ->
+        check(route.fileSize > 0) { "Torrent file is empty" }
+        transfer(item.copy(sourceUrl = route.url, expectedVideoSize = route.fileSize))
+    }
+}
+
 internal data class DownloadPlatformRequest(
     val item: DownloadItem,
 ) {

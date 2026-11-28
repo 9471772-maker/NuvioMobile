@@ -150,6 +150,7 @@ internal expect object P2pSettingsStorage {
     fun saveCacheSize(size: String)
 }
 
+@kotlinx.serialization.Serializable
 data class P2pStreamRequest(
     val infoHash: String,
     val fileIdx: Int?,
@@ -219,6 +220,7 @@ sealed class P2pStreamingState {
         val downloadedBytes: Long = 0L,
         val verifiedBytes: Long = 0L,
         val deliveredBytes: Long = 0L,
+        val selectedFileIndex: Int? = null,
     ) : P2pStreamingState()
 
     data class Error(val message: String) : P2pStreamingState()
@@ -226,7 +228,14 @@ sealed class P2pStreamingState {
 
 class P2pStreamingException(message: String) : Exception(message)
 
+internal data class P2pDownloadRoute(val url: String, val fileSize: Long)
+
 expect object P2pStreamingEngine {
+    internal suspend fun <T> withDownloadStream(
+        request: P2pStreamRequest,
+        transfer: suspend (P2pDownloadRoute) -> T,
+    ): T
+
     val state: StateFlow<P2pStreamingState>
     val cacheState: StateFlow<P2pCacheUiState>
     suspend fun startStream(request: P2pStreamRequest): String

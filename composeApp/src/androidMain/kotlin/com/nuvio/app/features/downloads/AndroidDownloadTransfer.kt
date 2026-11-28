@@ -53,7 +53,8 @@ internal suspend fun transferAndroidDownload(
                         validator?.let { header("If-Range", it) }
                     }
                 }.build()
-                val call = client.newCall(request)
+                val transferClient = if (item.torrent != null) downloadHttpClient else client
+                val call = transferClient.newCall(request)
                 activeCall.set(call)
                 ensureActive()
                 call.execute().use { response ->
@@ -92,7 +93,8 @@ internal suspend fun transferAndroidDownload(
                         }
                     }
                     ensureActive()
-                    if (totalBytes != null && downloaded != totalBytes) {
+                    val expectedBytes = if (item.torrent != null) item.expectedVideoSize else totalBytes
+                    if (expectedBytes != null && downloaded != expectedBytes) {
                         throw IOException("Download ended before all bytes were received")
                     }
                     return@async partial

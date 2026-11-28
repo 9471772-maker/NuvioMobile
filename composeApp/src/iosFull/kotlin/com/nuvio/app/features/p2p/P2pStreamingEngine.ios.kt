@@ -200,6 +200,58 @@ actual object P2pStreamingEngine {
         }
     }
 
+    private var activeDownloads = 0
+
+    internal actual suspend fun <T> withDownloadStream(
+        request: P2pStreamRequest,
+        transfer: suspend (P2pDownloadRoute) -> T,
+    ): T {
+        var download: NativeStream? = null
+        try {
+            lifecycleMutex.withLock {
+                val activeEngine = ensureEngine()
+                val canonicalHash = canonicalP2pInfoHash(request.infoHash)
+                val torrentId = if (canonicalHash in knownTorrentIds) {
+                    canonicalHash
+                } else {
+                    kotlinx.coroutines.withTimeout(60_000L) {
+                        val magnet = buildP2pMagnetUri(
+                            request.infoHash,
+                            (DefaultTrackers + request.trackers).distinct(),
+                        )
+                        addMagnet(activeEngine, magnet).also(knownTorrentIds::add)
+                    }
+                }
+                withContext(NonCancellable) {
+                    download = kotlinx.coroutines.withTimeout(15_000L) {
+                        prepareStream(activeEngine, torrentId, request.fileIdx, request.filename,
+                            backgroundDownload = true)
+                    }
+                    activeDownloads += 1
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            val prepared = checkNotNull(download)
+            return transfer(P2pDownloadRoute(prepared.url, prepared.fileSize))
+        } finally {
+            download?.let { prepared ->
+                withContext(NonCancellable) {
+                    lifecycleMutex.withLock {
+                        try {
+                            runCatching {
+                                kotlinx.coroutines.withTimeout(15_000L) {
+                                    stopNativeStream(engine, prepared.id)
+                                }
+                            }.onFailure { log("download route cleanup failed: ${it.message}") }
+                        } finally {
+                            activeDownloads -= 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     actual suspend fun clearCache(): P2pCacheClearResult = lifecycleMutex.withLock {
         check(_state.value !is P2pStreamingState.Connecting &&
             _state.value !is P2pStreamingState.Streaming) {
@@ -243,7 +295,7 @@ actual object P2pStreamingEngine {
         currentTorrentId = null
         _state.value = P2pStreamingState.Idle
         stream?.let { runCatching { stopNativeStream(engine, it.id) } }
-        if (shutdownEngine) closeEngine()
+        if (shutdownEngine && activeDownloads == 0) closeEngine()
     }
 
     private fun startStartupStatsPolling(
@@ -304,6 +356,7 @@ actual object P2pStreamingEngine {
         if (generation != streamGeneration || currentStream?.id != stream.id) return
         _state.value = P2pStreamingState.Streaming(
             localUrl = stream.url,
+            selectedFileIndex = stream.fileIndex,
             downloadSpeed = aggregate.downloadSpeed,
             uploadSpeed = aggregate.uploadSpeed,
             peers = aggregate.peers,
@@ -324,7 +377,7 @@ actual object P2pStreamingEngine {
             torrentProfile = settings.torrentProfile,
             diskCacheCapacityBytes = settings.cacheSize.bytes,
         )
-        engine?.takeIf { engineConfigurationKey == configuration }?.let { return it }
+        engine?.takeIf { engineConfigurationKey == configuration || activeDownloads > 0 }?.let { return it }
         closeEngine()
 
         val stateDirectory = "${NSHomeDirectory()}/Library/Application Support/NuvioEngine/state"
@@ -407,6 +460,7 @@ actual object P2pStreamingEngine {
         torrentId: String,
         fileIndex: Int?,
         filename: String?,
+        backgroundDownload: Boolean = false,
     ): NativeStream {
         val requestId = memScoped {
             val request = alloc<nuvio_engine_stream_request>()
@@ -417,6 +471,9 @@ actual object P2pStreamingEngine {
             request.torrent_id = torrentId.cstr.getPointer(this)
             request.file_index = fileIndex?.toUInt() ?: UInt.MAX_VALUE
             request.filename_hint = filename?.cstr?.getPointer(this)
+            if (backgroundDownload) {
+                request.purpose = com.nuvio.app.features.p2p.native.NUVIO_ENGINE_STREAM_PURPOSE_DOWNLOAD.toUInt()
+            }
             val output = alloc<ULongVar>()
             checkStatus(nuvio_engine_prepare_stream(activeEngine, request.ptr, output.ptr))
             output.value

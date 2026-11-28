@@ -83,84 +83,92 @@ internal actual object DownloadsPlatformDownloader {
             val tempPath = "$downloadsDirectory/${request.destinationFileName}.part"
 
             try {
-                DownloadSubtitles.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
-                var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
+                withDownloadSource(request.item) { source ->
+                    val transferRequest = DownloadPlatformRequest(source)
+                    DownloadSubtitles.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
+                    var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
 
-                var attemptedRangeRequest = resumeFromBytes > 0L
-                var result = performDownloadRequest(
-                    request = request,
-                    rangeStart = if (attemptedRangeRequest) resumeFromBytes else null,
-                    resumeFromBytes = resumeFromBytes,
-                    tempPath = tempPath,
-                    handle = handle,
-                    onProgress = onProgress,
-                )
-
-                if (attemptedRangeRequest && result.statusCode == 416) {
-                    removePathIfExists(tempPath)
-                    resumeFromBytes = 0L
-                    attemptedRangeRequest = false
-                    result = performDownloadRequest(
-                        request = request,
-                        rangeStart = null,
-                        resumeFromBytes = 0L,
+                    var attemptedRangeRequest = resumeFromBytes > 0L
+                    var result = performDownloadRequest(
+                        request = transferRequest,
+                        rangeStart = if (attemptedRangeRequest) resumeFromBytes else null,
+                        resumeFromBytes = resumeFromBytes,
                         tempPath = tempPath,
                         handle = handle,
                         onProgress = onProgress,
                     )
-                }
 
-                if (result.statusCode !in 200..299) {
-                    error(runBlocking { getString(Res.string.network_request_failed_http, result.statusCode) })
-                }
+                    if (attemptedRangeRequest && result.statusCode == 416) {
+                        removePathIfExists(tempPath)
+                        resumeFromBytes = 0L
+                        attemptedRangeRequest = false
+                        result = performDownloadRequest(
+                            request = transferRequest,
+                            rangeStart = null,
+                            resumeFromBytes = 0L,
+                            tempPath = tempPath,
+                            handle = handle,
+                            onProgress = onProgress,
+                        )
+                    }
 
-                val mimeType = result.mimeType?.substringBefore(";")?.trim()?.lowercase()
-                val invalidResponseType = !request.item.isHls && mimeType != null && (
-                    mimeType == "text/html" ||
-                    mimeType == "application/xhtml+xml" ||
-                    mimeType.contains("json") ||
-                    mimeType == "application/xml" ||
-                    mimeType == "text/xml" ||
-                    mimeType.endsWith("+xml")
-                )
-                if (invalidResponseType) {
-                    removePathIfExists(tempPath)
-                    error("Download returned an invalid response instead of video (HTTP ${result.statusCode}, ${mimeType}, ${result.finalHost ?: "unknown host"}).")
-                }
+                    if (result.statusCode !in 200..299) {
+                        error(runBlocking { getString(Res.string.network_request_failed_http, result.statusCode) })
+                    }
 
-                if (!request.item.isHls) {
-                    val expectedSize = request.item.expectedVideoSize?.takeIf { it > 0L }
-                    if (expectedSize != null) {
-                        val actualSize = fileSizeOrNull(tempPath) ?: 0L
-                        val minimumExpectedSize = expectedSize - (expectedSize / 10L)
-                        if (actualSize < minimumExpectedSize) {
-                            error("Download is incomplete: received $actualSize bytes, expected approximately $expectedSize bytes.")
+                    val mimeType = result.mimeType?.substringBefore(";")?.trim()?.lowercase()
+                    val invalidResponseType = !request.item.isHls && mimeType != null && (
+                        mimeType == "text/html" ||
+                        mimeType == "application/xhtml+xml" ||
+                        mimeType.contains("json") ||
+                        mimeType == "application/xml" ||
+                        mimeType == "text/xml" ||
+                        mimeType.endsWith("+xml")
+                    )
+                    if (invalidResponseType) {
+                        removePathIfExists(tempPath)
+                        error("Download returned an invalid response instead of video (HTTP ${result.statusCode}, ${mimeType}, ${result.finalHost ?: "unknown host"}).")
+                    }
+
+                    if (source.torrent != null) {
+                        val actualSize = fileSizeOrNull(tempPath)
+                        check(actualSize == source.expectedVideoSize) {
+                            "Torrent download is incomplete: received ${actualSize ?: 0} bytes, expected ${source.expectedVideoSize}."
+                        }
+                    } else if (!request.item.isHls) {
+                        val expectedSize = request.item.expectedVideoSize?.takeIf { it > 0L }
+                        if (expectedSize != null) {
+                            val actualSize = fileSizeOrNull(tempPath) ?: 0L
+                            val minimumExpectedSize = expectedSize - (expectedSize / 10L)
+                            if (actualSize < minimumExpectedSize) {
+                                error("Download is incomplete: received $actualSize bytes, expected approximately $expectedSize bytes.")
+                            }
                         }
                     }
+
+                    val isPartialResume = attemptedRangeRequest && result.statusCode == 206 && resumeFromBytes > 0L
+                    val startingBytes = if (isPartialResume) resumeFromBytes else 0L
+                    val totalBytes = resolveTotalBytes(
+                        startingBytes = startingBytes,
+                        isPartialResume = isPartialResume,
+                        contentRangeHeader = result.contentRange,
+                        contentLength = result.contentLength,
+                    )
+
+                    removePathIfExists(destinationPath)
+                    val moved = NSFileManager.defaultManager.moveItemAtPath(
+                        srcPath = tempPath,
+                        toPath = destinationPath,
+                        error = null,
+                    )
+                    if (!moved) {
+                        error(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
+                    }
+
+                    val localFileUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
+                    val finalSize = fileSizeOrNull(destinationPath)
+                    onSuccess(localFileUri, totalBytes ?: finalSize)
                 }
-
-                val isPartialResume = attemptedRangeRequest && result.statusCode == 206 && resumeFromBytes > 0L
-                val startingBytes = if (isPartialResume) resumeFromBytes else 0L
-                val totalBytes = resolveTotalBytes(
-                    startingBytes = startingBytes,
-                    isPartialResume = isPartialResume,
-                    contentRangeHeader = result.contentRange,
-                    contentLength = result.contentLength,
-                )
-
-                removePathIfExists(destinationPath)
-                val moved = NSFileManager.defaultManager.moveItemAtPath(
-                    srcPath = tempPath,
-                    toPath = destinationPath,
-                    error = null,
-                )
-                if (!moved) {
-                    error(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
-                }
-
-                val localFileUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
-                val finalSize = fileSizeOrNull(destinationPath)
-                onSuccess(localFileUri, totalBytes ?: finalSize)
             } catch (_: CancellationException) {
                 handle.cancelNativeTask()
             } catch (error: Throwable) {

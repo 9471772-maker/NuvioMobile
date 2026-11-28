@@ -139,6 +139,7 @@ actual object P2pStreamingEngine {
     private var engineConfigurationKey: EngineConfigurationKey? = null
     private val knownTorrentIds = mutableSetOf<String>()
     private var diagnosticRequestSequence = 0L
+    private val activeDownloads = java.util.concurrent.atomic.AtomicInteger()
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -146,6 +147,58 @@ actual object P2pStreamingEngine {
 
     actual suspend fun startStream(request: P2pStreamRequest): String = withContext(Dispatchers.IO) {
         startMutex.withLock { startStreamLocked(request) }
+    }
+
+    internal actual suspend fun <T> withDownloadStream(
+        request: P2pStreamRequest,
+        transfer: suspend (P2pDownloadRoute) -> T,
+    ): T = withContext(Dispatchers.IO) {
+        var activeEngine: NuvioEngine? = null
+        var stream: NuvioStream? = null
+        try {
+            startMutex.withLock {
+                cleanupJob?.join()
+                synchronized(lifecycleLock) { activeDownloads.incrementAndGet() }
+                val downloadEngine = try {
+                    ensureEngine().also { activeEngine = it }
+                } catch (error: Throwable) {
+                    activeDownloads.decrementAndGet()
+                    throw error
+                }
+                val canonicalHash = canonicalP2pInfoHash(request.infoHash)
+                val torrentId = if (canonicalHash in knownTorrentIds) {
+                    canonicalHash
+                } else {
+                    kotlinx.coroutines.withTimeout(60_000L) {
+                        val magnet = buildP2pMagnetUri(
+                            request.infoHash,
+                            (DEFAULT_TRACKERS + request.trackers).distinct(),
+                        )
+                        downloadEngine.addMagnet(magnet).also(knownTorrentIds::add)
+                    }
+                }
+                withContext(NonCancellable) {
+                    stream = kotlinx.coroutines.withTimeout(15_000L) {
+                        downloadEngine.prepareDownloadStream(torrentId, request.fileIdx, request.filename)
+                    }
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            val prepared = checkNotNull(stream)
+            transfer(P2pDownloadRoute(prepared.url, prepared.fileSize))
+        } finally {
+            if (activeEngine != null) withContext(NonCancellable) {
+                try {
+                    stream?.let {
+                        kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                            stopPreparedStream(activeEngine, it.id)
+                        }
+                    }
+                } finally {
+                    activeDownloads.decrementAndGet()
+                }
+            }
+        }
     }
 
     actual suspend fun clearCache(): P2pCacheClearResult = withContext(Dispatchers.IO) {
@@ -278,6 +331,7 @@ actual object P2pStreamingEngine {
                     generation = generation,
                     state = P2pStreamingState.Streaming(
                         localUrl = stream.url,
+                        selectedFileIndex = stream.fileIndex,
                         downloadSpeed = initialAggregate.downloadRateBytesPerSecond,
                         uploadSpeed = initialAggregate.uploadRateBytesPerSecond,
                         peers = initialAggregate.connectedPeers,
@@ -415,7 +469,7 @@ actual object P2pStreamingEngine {
         detached.streamId?.let { streamId ->
             stopPreparedStream(detached.engine, streamId)
         }
-        if (shutdownEngine) {
+        if (shutdownEngine && activeDownloads.get() == 0) {
             closeEngine(detached.engine)
         }
     }
@@ -456,7 +510,7 @@ actual object P2pStreamingEngine {
             torrentProfile = settings.torrentProfile,
             diskCacheCapacityBytes = settings.cacheSize.bytes,
         )
-        engine?.takeIf { engineConfigurationKey == configurationKey }?.let {
+        engine?.takeIf { engineConfigurationKey == configurationKey || activeDownloads.get() > 0 }?.let {
             Log.i(
                 DIAGNOSTIC_TAG,
                 "engine reuse configuration=$configurationKey elapsedMs=${elapsedSince(startedAtMs)}",
@@ -508,12 +562,15 @@ actual object P2pStreamingEngine {
         if (target == null) return
         val startedAtMs = SystemClock.elapsedRealtime()
         Log.i(DIAGNOSTIC_TAG, "engine shutdown begin active=${engine === target}")
-        if (engine === target) {
-            engineEventsJob?.cancel()
-            engineEventsJob = null
-            engine = null
-            engineConfigurationKey = null
-            knownTorrentIds.clear()
+        synchronized(lifecycleLock) {
+            if (engine === target) {
+                if (activeDownloads.get() > 0) return
+                engineEventsJob?.cancel()
+                engineEventsJob = null
+                engine = null
+                engineConfigurationKey = null
+                knownTorrentIds.clear()
+            }
         }
         withContext(NonCancellable) {
             try {

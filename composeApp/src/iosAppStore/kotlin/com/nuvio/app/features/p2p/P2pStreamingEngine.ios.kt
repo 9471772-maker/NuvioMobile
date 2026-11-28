@@ -16,6 +16,11 @@ actual object P2pStreamingEngine {
         throw P2pStreamingException(message)
     }
 
+    internal actual suspend fun <T> withDownloadStream(
+        request: P2pStreamRequest,
+        transfer: suspend (P2pDownloadRoute) -> T,
+    ): T = throw P2pStreamingException("Torrent downloads are not available on this platform")
+
     actual suspend fun clearCache(): P2pCacheClearResult =
         P2pCacheClearResult(reclaimedBytes = 0L, remainingBytes = 0L, protectedBytes = 0L)
 

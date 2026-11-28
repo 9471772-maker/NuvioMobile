@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.p2p.P2pStreamRequest
+import com.nuvio.app.features.p2p.buildP2pMagnetUri
 import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
@@ -125,15 +127,17 @@ object DownloadsRepository {
         episodeThumbnail: String?,
         stream: StreamItem,
         replaceExisting: Boolean = true,
+        torrent: P2pStreamRequest? = null,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
-        val sourceUrl = stream.playableDirectUrl
+        val sourceUrl = torrent?.let { buildP2pMagnetUri(it.infoHash, it.trackers) }
+            ?: stream.playableDirectUrl
             ?.trim()
             ?.takeIf { it.isNotBlank() }
             ?: return DownloadEnqueueResult.MissingUrl
 
-        if (!sourceUrl.isSupportedDownloadUrl()) {
+        if (torrent == null && !sourceUrl.isSupportedDownloadUrl()) {
             return DownloadEnqueueResult.UnsupportedFormat
         }
 
@@ -165,7 +169,7 @@ object DownloadsRepository {
             episodeNumber = episodeNumber,
             episodeTitle = episodeTitle,
             fallbackTitle = stream.streamLabel,
-            sourceUrl = sourceUrl,
+            sourceUrl = torrent?.filename ?: sourceUrl,
             downloadId = downloadId,
         )
 
@@ -188,7 +192,11 @@ object DownloadsRepository {
             providerName = stream.addonName,
             providerAddonId = stream.addonId,
             sourceUrl = sourceUrl,
-            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
+            sourceHeaders = if (torrent == null) {
+                sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request)
+            } else {
+                emptyMap()
+            },
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
             isHls = sourceUrl.isHlsPlaylistUrl(),
             expectedVideoSize = stream.behaviorHints.videoSize?.takeIf { it > 0L },
@@ -206,6 +214,7 @@ object DownloadsRepository {
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
+            torrent = torrent,
         )
 
         currentItems.add(0, item)

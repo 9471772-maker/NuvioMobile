@@ -23,6 +23,10 @@ import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.p2p.P2pStreamRequest
+import com.nuvio.app.features.p2p.P2pStreamingEngine
+import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.streams.StreamItem
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,13 +49,26 @@ internal fun PlayerDownloadOverlay(runtime: PlayerScreenRuntime) {
     } ?: false
 
     val directUrl = stream?.playableDirectUrl
-    val canDownload = stream != null &&
-        runtime.activeTorrentInfoHash == null &&
+    val torrentState by P2pStreamingEngine.state.collectAsStateWithLifecycle()
+    val playback = torrentState as? P2pStreamingState.Streaming
+    val torrent = runtime.activeTorrentInfoHash?.let { hash ->
+        if (playback == null || playback.localUrl != runtime.p2pResolvedSourceUrl) {
+            null
+        } else {
+            playback.selectedFileIndex?.let { fileIndex ->
+                P2pStreamRequest(
+                    infoHash = hash,
+                    fileIdx = fileIndex,
+                    filename = runtime.activeTorrentFilename,
+                    trackers = runtime.activeTorrentTrackers,
+                )
+            }
+        }
+    }
+    val canDownloadDirect = runtime.activeTorrentInfoHash == null &&
         runtime.p2pResolvedSourceUrl == null &&
-        (
-            directUrl == sourceUrl ||
-                (shouldResolve && sourceUrl.startsWith("http", ignoreCase = true))
-            )
+        (directUrl == sourceUrl || (shouldResolve && sourceUrl.startsWith("http", ignoreCase = true)))
+    val canDownload = stream != null && (torrent != null || canDownloadDirect)
 
     var isEnqueuing by remember(stream, sourceUrl) {
         mutableStateOf(false)
@@ -98,6 +115,30 @@ internal fun PlayerDownloadOverlay(runtime: PlayerScreenRuntime) {
                     isEnqueuing = true
                     runtime.scope.launch {
                         try {
+                            fun enqueue(downloadStream: StreamItem) =
+                                DownloadsRepository.enqueueFromStream(
+                                    contentType = runtime.contentType ?: runtime.parentMetaType,
+                                    videoId = runtime.activeVideoId ?: runtime.parentMetaId,
+                                    parentMetaId = parentMetaId,
+                                    parentMetaType = runtime.parentMetaType,
+                                    title = runtime.title,
+                                    logo = runtime.logo,
+                                    poster = runtime.poster,
+                                    background = runtime.background,
+                                    seasonNumber = season,
+                                    episodeNumber = episode,
+                                    episodeTitle = runtime.activeEpisodeTitle,
+                                    episodeThumbnail = runtime.activeEpisodeThumbnail,
+                                    stream = downloadStream,
+                                    replaceExisting = false,
+                                    torrent = torrent,
+                                ).also { NuvioToastController.show(it.toastMessage()) }
+
+                            if (torrent != null) {
+                                enqueue(currentStream)
+                                return@launch
+                            }
+
                             when (
                                 val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
                                     stream = currentStream,
@@ -105,25 +146,7 @@ internal fun PlayerDownloadOverlay(runtime: PlayerScreenRuntime) {
                                     episode = episode,
                                 )
                             ) {
-                                is DirectDebridPlayableResult.Success -> {
-                                    val result = DownloadsRepository.enqueueFromStream(
-                                        contentType = runtime.contentType ?: runtime.parentMetaType,
-                                        videoId = runtime.activeVideoId ?: runtime.parentMetaId,
-                                        parentMetaId = parentMetaId,
-                                        parentMetaType = runtime.parentMetaType,
-                                        title = runtime.title,
-                                        logo = runtime.logo,
-                                        poster = runtime.poster,
-                                        background = runtime.background,
-                                        seasonNumber = season,
-                                        episodeNumber = episode,
-                                        episodeTitle = runtime.activeEpisodeTitle,
-                                        episodeThumbnail = runtime.activeEpisodeThumbnail,
-                                        stream = resolved.stream,
-                                        replaceExisting = false,
-                                    )
-                                    NuvioToastController.show(result.toastMessage())
-                                }
+                                is DirectDebridPlayableResult.Success -> enqueue(resolved.stream)
 
                                 else -> {
                                     resolved.toastMessage()?.let(NuvioToastController::show)

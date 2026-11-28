@@ -53,6 +53,7 @@ data class DownloadItem(
     val errorMessage: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    val torrent: com.nuvio.app.features.p2p.P2pStreamRequest? = null,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null

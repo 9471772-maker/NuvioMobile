@@ -11,9 +11,9 @@ workflows:
         NUVIO_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI"
       xcode: latest
     scripts:
-      - name: Initialize required MPVKit submodule
+      - name: Prepare iOS native dependencies
         script: |
-          git submodule update --init -- MPVKit
+          ./scripts/prepare-ios-dependencies.sh
 
       - name: Create local.properties
         script: |
