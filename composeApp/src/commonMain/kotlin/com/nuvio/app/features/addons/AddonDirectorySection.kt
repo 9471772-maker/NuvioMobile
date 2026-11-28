@@ -101,7 +101,7 @@ internal fun AddonDirectorySection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        val categories = (recommendations + entries).flatMap { it.categories }.distinctBy { it.lowercase() }.sorted()
+        val categories = (recommendations + entries).flatMap { it.categories }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
         var expanded by remember { mutableStateOf(false) }
         androidx.compose.foundation.layout.Box {
             androidx.compose.material3.TextButton(onClick = { expanded = true }) {
@@ -116,17 +116,15 @@ internal fun AddonDirectorySection(
                 }
             }
         }
-        fun matchesCategory(entry: AddonDirectoryEntry) =
-            category == null || entry.categories.any { it.equals(category, ignoreCase = true) }
-        val recommendedMatches = recommendations.filter(::matchesCategory)
-        val directoryMatches = entries.filter(::matchesCategory).filter { entry ->
-            recommendedMatches.none { it.manifestUrl == entry.manifestUrl }
-        }
-        if (recommendedMatches.isNotEmpty()) {
-            Text("Recommended addons", style = MaterialTheme.typography.titleMedium)
-            recommendedMatches.forEach { entry ->
-                AddonDirectoryEntryCard(entry, entry.manifestUrl in installedUrls) { onInstall(entry) }
-            }
+        val matches = remember(entries, recommendations, category) {
+            (recommendations + entries)
+                .filter { entry -> category == null || entry.categories.any { it.equals(category, ignoreCase = true) } }
+                .distinctBy { it.manifestUrl }
+                .sortedWith(compareBy<AddonDirectoryEntry>(
+                    { it.name.dropWhile { char -> !char.isLetterOrDigit() }.lowercase() },
+                    { it.name.lowercase() },
+                    { it.manifestUrl },
+                ))
         }
 
         OutlinedTextField(
@@ -152,7 +150,7 @@ internal fun AddonDirectorySection(
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = "Loaded installable entries: ${entries.size} (including alternative server instances). Adult-content entries are labelled.",
+            text = "Matching addons: ${matches.size} • A–Z",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -179,16 +177,17 @@ internal fun AddonDirectorySection(
             )
         }
 
-        if (!loading && directoryMatches.isEmpty() && recommendedMatches.isEmpty() && error == null) {
+        if (!loading && matches.isEmpty() && error == null) {
             Text(
                 text = "No addons found. Try another search.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        directoryMatches.forEach { entry ->
+        matches.forEach { entry ->
             AddonDirectoryEntryCard(
                 entry = entry,
+                recommended = recommendations.any { it.manifestUrl == entry.manifestUrl },
                 installed = entry.manifestUrl in installedUrls,
                 onInstall = { onInstall(entry) },
             )
@@ -223,6 +222,7 @@ internal fun AddonDirectorySection(
 @Composable
 private fun AddonDirectoryEntryCard(
     entry: AddonDirectoryEntry,
+    recommended: Boolean,
     installed: Boolean,
     onInstall: () -> Unit,
 ) {
@@ -252,6 +252,7 @@ private fun AddonDirectoryEntryCard(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+                if (recommended) Text("Recommended", style = MaterialTheme.typography.labelSmall)
                 if (entry.isAlternativeInstance) {
                     Text(
                         text = "Alternative server instance",

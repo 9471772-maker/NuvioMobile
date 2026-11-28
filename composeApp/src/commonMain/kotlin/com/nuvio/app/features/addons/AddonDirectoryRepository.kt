@@ -119,7 +119,9 @@ internal object AddonDirectoryRepository {
 
     private fun JsonObject.categoryLabels(): List<String> = buildList {
         val manifest = this@categoryLabels["manifest"].asObject()
-        if (this@categoryLabels.boolean("nsfw")) add("Adult (18+)")
+        if (this@categoryLabels.boolean("nsfw") || manifest?.get("behaviorHints").asObject()?.boolean("adult") == true) {
+            add("Adult (18+)")
+        }
         for (tag in this@categoryLabels["categories"].asArray()) {
             val label = tag.asObject()?.string("name") ?: tag.jsonPrimitiveOrNull()?.contentOrNull
             label?.trim()?.takeIf { it.isNotEmpty() }?.let { add(contentLabel(it)) }

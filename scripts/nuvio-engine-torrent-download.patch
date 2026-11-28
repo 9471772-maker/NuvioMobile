@@ -580,7 +580,7 @@ index cd93754..cf92263 100644
      std::unordered_set<RequestContext*> pending_resume_saves_;
      std::unordered_set<std::string> pending_cache_unloads_;
 diff --git a/src/torrent/libtorrent_stream_bridge.cpp b/src/torrent/libtorrent_stream_bridge.cpp
-index 25fa513..fc0ab8a 100644
+index 25fa513..1fdcfbd 100644
 --- a/src/torrent/libtorrent_stream_bridge.cpp
 +++ b/src/torrent/libtorrent_stream_bridge.cpp
 @@ -141,6 +141,7 @@ lt::download_priority_t download_priority_for(
@@ -607,18 +607,21 @@ index 25fa513..fc0ab8a 100644
      };
  
      struct CurrentSchedule {
-@@ -333,6 +336,10 @@ struct LibtorrentStreamBridge::Impl {
+@@ -333,6 +336,13 @@ struct LibtorrentStreamBridge::Impl {
          const http::ByteRange response_range,
          const std::uint64_t position
      ) {
 +        if (route.background_download) {
-+            constexpr std::uint64_t download_window = 4 * 1024 * 1024;
++            // Keep several pieces available for peer requests, even on large-piece torrents.
++            const auto download_window = std::clamp<std::uint64_t>(
++                std::uint64_t{16} * route.piece_size, 4ULL << 20, 32ULL << 20
++            );
 +            return {position, position + std::min(download_window - 1, response_range.end - position)};
 +        }
          return scheduler::blocking_demand_range(
              response_range,
              position,
-@@ -381,7 +388,8 @@ struct LibtorrentStreamBridge::Impl {
+@@ -381,7 +391,8 @@ struct LibtorrentStreamBridge::Impl {
          const lt::torrent_handle& handle,
          const std::string& id,
          const std::uint32_t file_index,
@@ -628,7 +631,7 @@ index 25fa513..fc0ab8a 100644
      ) {
          if (shutting_down.load()) {
              throw std::runtime_error("stream bridge is shutting down");
-@@ -405,21 +413,9 @@ struct LibtorrentStreamBridge::Impl {
+@@ -405,21 +416,9 @@ struct LibtorrentStreamBridge::Impl {
                  handle.status(lt::torrent_handle::query_save_path).save_path
              )),
              std::make_shared<StreamActivity>(std::chrono::steady_clock::now()),
@@ -651,7 +654,7 @@ index 25fa513..fc0ab8a 100644
          {
              std::lock_guard lock(routes_mutex);
              routes.insert_or_assign(route.target, route);
-@@ -427,14 +423,15 @@ struct LibtorrentStreamBridge::Impl {
+@@ -427,14 +426,15 @@ struct LibtorrentStreamBridge::Impl {
          next_progress_sample = {};
          last_ready_pieces.erase(id);
          revoked_torrents.erase(id);
@@ -670,7 +673,7 @@ index 25fa513..fc0ab8a 100644
          return {
              route.stream_id,
              "http://127.0.0.1:" + std::to_string(server->port()) + route.target,
-@@ -607,7 +604,7 @@ struct LibtorrentStreamBridge::Impl {
+@@ -607,7 +607,7 @@ struct LibtorrentStreamBridge::Impl {
              {
                  std::unique_lock lock(waiter->mutex);
                  const auto unverified_ready = [&] {
@@ -679,7 +682,7 @@ index 25fa513..fc0ab8a 100644
                          finished_run_end(waiter->finished_blocks, cursor, slice.end) > cursor;
                  };
                  waiter->ready.wait_until(lock, deadline, [&] {
-@@ -893,9 +890,7 @@ struct LibtorrentStreamBridge::Impl {
+@@ -893,9 +893,7 @@ struct LibtorrentStreamBridge::Impl {
      }
  
      void erase_anchor(const std::string& stream_id) {
@@ -690,7 +693,7 @@ index 25fa513..fc0ab8a 100644
      }
  
      void process_piece_request(const HttpCommand& command, ActiveDemand& demand) {
-@@ -1025,6 +1020,21 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1025,6 +1023,21 @@ struct LibtorrentStreamBridge::Impl {
          }
      }
  
@@ -712,7 +715,7 @@ index 25fa513..fc0ab8a 100644
      void handle_hash_failed(const lt::hash_failed_alert& alert) {
          const PieceKey key{
              torrent_id(alert.handle),
-@@ -1038,15 +1048,17 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1038,15 +1051,17 @@ struct LibtorrentStreamBridge::Impl {
          publish_partial(key);
      }
  
@@ -723,7 +726,8 @@ index 25fa513..fc0ab8a 100644
          std::vector<scheduler::StreamDemand> demands;
 +        bool has_playback_reader = false;
          for (const auto& [demand_id, demand] : active_demands) {
-             if (demand.route.torrent_id != id || !demand.needs_data) {
+-            if (demand.route.torrent_id != id || !demand.needs_data) {
++            if (demand.route.torrent_id != id || (!demand.needs_data && !demand.route.background_download)) {
                  continue;
              }
              handle = demand.route.handle;
@@ -731,7 +735,7 @@ index 25fa513..fc0ab8a 100644
              const auto blocking_piece = static_cast<std::uint32_t>(
                  (demand.route.file_offset + demand.range.start) / demand.route.piece_size
              );
-@@ -1057,29 +1069,41 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1057,29 +1072,41 @@ struct LibtorrentStreamBridge::Impl {
                  demand.route.file_size,
                  demand.route.piece_size,
                  demand.range,
@@ -787,7 +791,7 @@ index 25fa513..fc0ab8a 100644
              const auto absolute = demand.file_offset + demand.range.start;
              first_blocks.insert_or_assign(
                  static_cast<std::uint32_t>(absolute / demand.piece_size),
-@@ -1097,10 +1121,11 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1097,10 +1124,11 @@ struct LibtorrentStreamBridge::Impl {
          }
          if (const auto focused = active_demands.find(plan.focused_demand_id);
              focused != active_demands.end()) {
@@ -800,7 +804,7 @@ index 25fa513..fc0ab8a 100644
              });
          }
          const auto previous = current_schedules.find(id);
-@@ -1124,7 +1149,7 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1124,7 +1152,7 @@ struct LibtorrentStreamBridge::Impl {
          }
  
          try {
@@ -809,7 +813,7 @@ index 25fa513..fc0ab8a 100644
                  const auto metadata = handle->torrent_file();
                  if (metadata) {
                      std::vector<lt::download_priority_t> priorities(
-@@ -1353,7 +1378,9 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1353,7 +1381,9 @@ struct LibtorrentStreamBridge::Impl {
  
      void remove_torrent(const std::string& id) {
          revoked_torrents.insert(id);
@@ -820,7 +824,7 @@ index 25fa513..fc0ab8a 100644
          retention.erase(id);
          resume_save_requests.erase(id);
          piece_cache.erase_torrent(id);
-@@ -1646,7 +1673,12 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1646,7 +1676,12 @@ struct LibtorrentStreamBridge::Impl {
              }
          }
          for (const auto& route : streams) {
@@ -834,7 +838,7 @@ index 25fa513..fc0ab8a 100644
                  continue;
              }
              try {
-@@ -1660,7 +1692,7 @@ struct LibtorrentStreamBridge::Impl {
+@@ -1660,7 +1695,7 @@ struct LibtorrentStreamBridge::Impl {
          const StreamRoute& route,
          const std::chrono::steady_clock::time_point now
      ) {
@@ -843,7 +847,7 @@ index 25fa513..fc0ab8a 100644
          if (anchor == anchors.end() || route.piece_size == 0 || !route.handle.is_valid() ||
              !route.handle.in_session()) {
              return;
-@@ -2009,9 +2041,10 @@ PreparedStream LibtorrentStreamBridge::register_stream(
+@@ -2009,9 +2044,10 @@ PreparedStream LibtorrentStreamBridge::register_stream(
      const lt::torrent_handle& handle,
      const std::string& torrent_id,
      const std::uint32_t file_index,
@@ -856,7 +860,7 @@ index 25fa513..fc0ab8a 100644
  }
  
  void LibtorrentStreamBridge::poll() {
-@@ -2030,6 +2063,10 @@ void LibtorrentStreamBridge::handle_block_finished(const lt::block_finished_aler
+@@ -2030,6 +2066,10 @@ void LibtorrentStreamBridge::handle_block_finished(const lt::block_finished_aler
      impl_->handle_block_finished(alert);
  }
  
