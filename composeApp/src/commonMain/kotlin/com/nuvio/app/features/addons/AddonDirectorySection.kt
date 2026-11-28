@@ -333,7 +333,7 @@ private fun AddonDirectoryEntryCard(
         val uriHandler = LocalUriHandler.current
         if (setupUrl != null) {
             NuvioPrimaryButton(
-                text = "Open setup guide",
+                text = if (entry.openWebsite) "Open website" else "Open setup guide",
                 enabled = true,
                 onClick = { uriHandler.openUri(setupUrl) },
             )

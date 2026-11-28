@@ -4,7 +4,7 @@ internal suspend fun fetchAddonResponseText(
     url: String,
     forceRefresh: Boolean = false,
 ): String =
-    PhilippinesFilmAddon.response(url, forceRefresh) ?: fetchAddonHttpText(url, forceRefresh)
+    WebsiteCatalogAddons.response(url, forceRefresh) ?: fetchAddonHttpText(url, forceRefresh)
 
 internal suspend fun fetchAddonHttpText(url: String, forceRefresh: Boolean): String =
     if (forceRefresh) {

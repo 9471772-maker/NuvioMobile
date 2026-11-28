@@ -227,5 +227,108 @@
       "Catalogs"
     ],
     "nsfw": true
+  },
+  {
+    "manifestUrl": "https://pinayjuicy.com/categories/pinoy-movies-18/page/5/manifest.json",
+    "manifest": {
+      "name": "PinayJuicy · Pinoy Movies (18+)",
+      "description": "Browse titles from this website and open them in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Films",
+      "Catalogs"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://www.erome.com/explore/manifest.json",
+    "manifest": {
+      "name": "EroMe Explore (18+)",
+      "description": "Browse titles from this website and open them in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Videos",
+      "Catalogs"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://koreanpornmovie.com/manifest.json",
+    "manifest": {
+      "name": "Korean Films (18+)",
+      "description": "Browse titles from this website and open them in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Films",
+      "Catalogs"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://www.eporner.com/manifest.json",
+    "manifest": {
+      "name": "Eporner Videos (18+)",
+      "description": "Browse titles from this website and open them in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Videos",
+      "Catalogs"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://moviebox01.com/manifest.json",
+    "manifest": {
+      "name": "MovieBox Films",
+      "description": "Browse titles from this website and open them in your browser."
+    },
+    "categories": [
+      "Films",
+      "Catalogs"
+    ],
+    "nsfw": false
+  },
+  {
+    "setupUrl": "https://eroticmv.com/category/country/philippines/",
+    "openWebsite": true,
+    "manifest": {
+      "name": "EroticMV · Philippines",
+      "description": "Open the Philippines category in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Website links"
+    ],
+    "nsfw": true
+  },
+  {
+    "setupUrl": "https://xhamster.com/search/new#fa-s9Lew53L29Lew4KKnd3Wxw",
+    "openWebsite": true,
+    "manifest": {
+      "name": "Xhamster · Search",
+      "description": "Open the original search link and its filters in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Website links"
+    ],
+    "nsfw": true
+  },
+  {
+    "setupUrl": "https://www.jennymovies.com/thai/",
+    "openWebsite": true,
+    "manifest": {
+      "name": "JennyMovies · Thai",
+      "description": "Open the Thai category in your browser."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Website links"
+    ],
+    "nsfw": true
   }
 ]

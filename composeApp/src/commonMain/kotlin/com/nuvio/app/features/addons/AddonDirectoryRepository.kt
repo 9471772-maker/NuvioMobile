@@ -24,6 +24,7 @@ internal data class AddonDirectoryEntry(
     val categories: List<String>,
     val isAlternativeInstance: Boolean,
     val setupUrl: String? = null,
+    val openWebsite: Boolean = false,
 )
 
 internal data class AddonDirectoryPage(
@@ -108,6 +109,7 @@ internal object AddonDirectoryRepository {
         return AddonDirectoryEntry(
             manifestUrl = manifestUrl,
             setupUrl = setupUrl,
+            openWebsite = boolean("openWebsite"),
             name = manifest?.string("name")
                 ?.takeIf(String::isNotBlank)
                 ?: string("slug").ifBlank { manifestUrl.substringAfterLast('/').ifBlank { "Addon" } },

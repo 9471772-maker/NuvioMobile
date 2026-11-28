@@ -571,7 +571,7 @@ private fun normalizeManifestUrl(rawUrl: String): String {
     val withoutFragment = normalizedScheme.substringBefore("#")
     val query = withoutFragment.substringAfter("?", "")
     val path = withoutFragment.substringBefore("?").trimEnd('/')
-    if (path == PhilippinesFilmAddon.sourceUrl.trimEnd('/')) return PhilippinesFilmAddon.manifestUrl
+    WebsiteCatalogAddons.manifestForSource(path)?.let { return it }
     val manifestPath = if (path.endsWith("/manifest.json")) {
         path
     } else {
