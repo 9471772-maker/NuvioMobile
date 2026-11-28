@@ -1,0 +1,30 @@
+[
+  {
+    "manifestUrl": "https://caching.stremio.net/publicdomainmovies.now.sh/manifest.json",
+    "manifest": {
+      "name": "Public Domain Movies",
+      "description": "Torrent streams for classic films."
+    }
+  },
+  {
+    "manifestUrl": "https://dev.nebulawp.org/stremio/archive.org-addon/manifest.json",
+    "manifest": {
+      "name": "Archive.org",
+      "description": "Find Internet Archive streams for supported movies."
+    }
+  },
+  {
+    "manifestUrl": "https://v3-cinemeta.strem.io/manifest.json",
+    "manifest": {
+      "name": "Cinemeta",
+      "description": "Movie and series catalogs, episode lists and metadata."
+    }
+  },
+  {
+    "manifestUrl": "https://opensubtitles-v3.strem.io/manifest.json",
+    "manifest": {
+      "name": "OpenSubtitles v3",
+      "description": "Subtitle tracks in multiple languages."
+    }
+  }
+]

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.addons
 
+import nuvio.composeapp.generated.resources.Res
 import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -38,6 +39,14 @@ internal object AddonDirectoryRepository {
 
     private val json = Json {
         ignoreUnknownKeys = true
+    }
+
+    @OptIn(org.jetbrains.compose.resources.ExperimentalResourceApi::class)
+    suspend fun recommended(): List<AddonDirectoryEntry> {
+        val bytes = Res.readBytes("files/recommended-addons.json")
+        return json.parseToJsonElement(bytes.decodeToString()).jsonArray.mapNotNull {
+            it.asObject()?.toDirectoryEntry(false)
+        }
     }
 
     suspend fun fetchPage(

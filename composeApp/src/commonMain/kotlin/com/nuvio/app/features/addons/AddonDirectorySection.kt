@@ -39,6 +39,7 @@ internal fun AddonDirectorySection(
     var appliedSearch by rememberSaveable { mutableStateOf("") }
     var reloadToken by remember { mutableStateOf(0) }
     var entries by remember { mutableStateOf(emptyList<AddonDirectoryEntry>()) }
+    var recommendations by remember { mutableStateOf(emptyList<AddonDirectoryEntry>()) }
     var totalAddons by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -51,6 +52,10 @@ internal fun AddonDirectorySection(
         totalAddons = 0
 
         try {
+            recommendations = AddonDirectoryRepository.recommended().filter {
+                it.name.contains(appliedSearch, ignoreCase = true) ||
+                    it.description.contains(appliedSearch, ignoreCase = true)
+            }
             val combined = linkedMapOf<String, AddonDirectoryEntry>()
             var requestedPage = 1
             var hasMore = true
@@ -94,6 +99,13 @@ internal fun AddonDirectorySection(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (recommendations.isNotEmpty()) {
+            Text("Recommended addons", style = MaterialTheme.typography.titleMedium)
+            recommendations.forEach { entry ->
+                AddonDirectoryEntryCard(entry, entry.manifestUrl in installedUrls) { onInstall(entry) }
+            }
+        }
 
         OutlinedTextField(
             value = searchText,
@@ -145,14 +157,14 @@ internal fun AddonDirectorySection(
             )
         }
 
-        if (!loading && entries.isEmpty() && error == null) {
+        if (!loading && entries.isEmpty() && recommendations.isEmpty() && error == null) {
             Text(
                 text = "No addons found. Try another search.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        entries.forEach { entry ->
+        entries.filter { entry -> recommendations.none { it.manifestUrl == entry.manifestUrl } }.forEach { entry ->
             AddonDirectoryEntryCard(
                 entry = entry,
                 installed = entry.manifestUrl in installedUrls,
