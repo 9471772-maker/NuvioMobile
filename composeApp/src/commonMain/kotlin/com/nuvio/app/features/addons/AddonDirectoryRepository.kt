@@ -77,7 +77,7 @@ internal object AddonDirectoryRepository {
 
                 addon["instances"].asArray().forEach { instanceElement ->
                     instanceElement.asObject()
-                        ?.toDirectoryEntry(true)
+                        ?.toDirectoryEntry(true, addon.categoryLabels())
                         ?.let(::add)
                 }
             }
@@ -94,6 +94,7 @@ internal object AddonDirectoryRepository {
 
     private fun JsonObject.toDirectoryEntry(
         isAlternativeInstance: Boolean,
+        inherited: List<String> = emptyList(),
     ): AddonDirectoryEntry? {
         val manifestUrl = string("manifestUrl").trim()
         if (!manifestUrl.startsWith("https://") && !manifestUrl.startsWith("http://")) {
@@ -101,10 +102,6 @@ internal object AddonDirectoryRepository {
         }
 
         val manifest = this["manifest"].asObject()
-        val categories = this["categories"].asArray().mapNotNull { category ->
-            category.asObject()?.string("name")?.takeIf(String::isNotBlank)
-        }
-
         return AddonDirectoryEntry(
             manifestUrl = manifestUrl,
             name = manifest?.string("name")
@@ -114,9 +111,32 @@ internal object AddonDirectoryRepository {
             logoUrl = manifest?.string("logo")?.takeIf(String::isNotBlank),
             stars = int("stars"),
             isNsfw = boolean("nsfw"),
-            categories = categories,
+            categories = (inherited + categoryLabels()).distinctBy { it.lowercase() }.ifEmpty { listOf("Other") },
             isAlternativeInstance = isAlternativeInstance,
         )
+    }
+
+    private fun JsonObject.categoryLabels(): List<String> = buildList {
+        val manifest = this@categoryLabels["manifest"].asObject()
+        for (tag in this@categoryLabels["categories"].asArray()) {
+            val label = tag.asObject()?.string("name") ?: tag.jsonPrimitiveOrNull()?.contentOrNull
+            label?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it.replaceFirstChar(Char::uppercase)) }
+        }
+        for (type in manifest?.get("types").asArray()) {
+            when (type.jsonPrimitiveOrNull()?.contentOrNull) {
+                "movie" -> add("Movies")
+                "series" -> add("TV shows")
+                "tv", "channel" -> add("Live TV")
+            }
+        }
+        for (resource in manifest?.get("resources").asArray()) {
+            when (resource.asObject()?.string("name") ?: resource.jsonPrimitiveOrNull()?.contentOrNull) {
+                "catalog" -> add("Catalogs")
+                "meta" -> add("Metadata")
+                "stream" -> add("Streams")
+                "subtitles" -> add("Subtitles")
+            }
+        }
     }
 
     private fun JsonObject.string(key: String): String =

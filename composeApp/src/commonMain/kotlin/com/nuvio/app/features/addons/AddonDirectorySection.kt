@@ -43,6 +43,7 @@ internal fun AddonDirectorySection(
     var totalAddons by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var category by rememberSaveable { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(appliedSearch, reloadToken) {
@@ -100,9 +101,30 @@ internal fun AddonDirectorySection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (recommendations.isNotEmpty()) {
+        val categories = (recommendations + entries).flatMap { it.categories }.distinctBy { it.lowercase() }.sorted()
+        var expanded by remember { mutableStateOf(false) }
+        androidx.compose.foundation.layout.Box {
+            androidx.compose.material3.TextButton(onClick = { expanded = true }) {
+                Text(category ?: "All categories")
+            }
+            androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                (listOf<String?>(null) + categories).forEach { option ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(option ?: "All categories") },
+                        onClick = { category = option; expanded = false },
+                    )
+                }
+            }
+        }
+        fun matchesCategory(entry: AddonDirectoryEntry) =
+            category == null || entry.categories.any { it.equals(category, ignoreCase = true) }
+        val recommendedMatches = recommendations.filter(::matchesCategory)
+        val directoryMatches = entries.filter(::matchesCategory).filter { entry ->
+            recommendedMatches.none { it.manifestUrl == entry.manifestUrl }
+        }
+        if (recommendedMatches.isNotEmpty()) {
             Text("Recommended addons", style = MaterialTheme.typography.titleMedium)
-            recommendations.forEach { entry ->
+            recommendedMatches.forEach { entry ->
                 AddonDirectoryEntryCard(entry, entry.manifestUrl in installedUrls) { onInstall(entry) }
             }
         }
@@ -157,14 +179,14 @@ internal fun AddonDirectorySection(
             )
         }
 
-        if (!loading && entries.isEmpty() && recommendations.isEmpty() && error == null) {
+        if (!loading && directoryMatches.isEmpty() && recommendedMatches.isEmpty() && error == null) {
             Text(
                 text = "No addons found. Try another search.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        entries.filter { entry -> recommendations.none { it.manifestUrl == entry.manifestUrl } }.forEach { entry ->
+        directoryMatches.forEach { entry ->
             AddonDirectoryEntryCard(
                 entry = entry,
                 installed = entry.manifestUrl in installedUrls,
@@ -269,7 +291,7 @@ private fun AddonDirectoryEntryCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                entry.categories.take(5).forEach { category ->
+                entry.categories.forEach { category ->
                     Text(
                         text = category,
                         style = MaterialTheme.typography.labelSmall,
