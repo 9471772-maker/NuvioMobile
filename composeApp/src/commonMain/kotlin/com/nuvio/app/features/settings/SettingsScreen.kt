@@ -728,10 +728,12 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                     showPluginsEntry = AppFeaturePolicy.pluginsEnabled,
                     onAddonsClick = onAddonsClick,
+                    onInstalledAddonsClick = { onPageChange(SettingsPage.InstalledAddons) },
                     onPluginsClick = onPluginsClick,
                     onMediaServersClick = { onPageChange(SettingsPage.MediaServers) },
                 )
                 SettingsPage.Addons -> addonsSettingsContent()
+                SettingsPage.InstalledAddons -> installedAddonsSettingsContent()
                 SettingsPage.MediaServers -> mediaServersSettingsContent(
                     isTablet = false,
                     onServerClick = { onPageChange(SettingsPage.MediaServer) },
@@ -1130,10 +1132,12 @@ private fun TabletSettingsScreen(
                         isTablet = true,
                         showPluginsEntry = AppFeaturePolicy.pluginsEnabled,
                         onAddonsClick = { openInlinePage(SettingsPage.Addons) },
+                        onInstalledAddonsClick = { openInlinePage(SettingsPage.InstalledAddons) },
                         onPluginsClick = { openInlinePage(SettingsPage.Plugins) },
                         onMediaServersClick = { openInlinePage(SettingsPage.MediaServers) },
                     )
                     SettingsPage.Addons -> addonsSettingsContent()
+                    SettingsPage.InstalledAddons -> installedAddonsSettingsContent()
                     SettingsPage.MediaServers -> mediaServersSettingsContent(
                         isTablet = true,
                         onServerClick = { openInlinePage(SettingsPage.MediaServer) },

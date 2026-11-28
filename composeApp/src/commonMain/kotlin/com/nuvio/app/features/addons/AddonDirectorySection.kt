@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -102,17 +103,34 @@ internal fun AddonDirectorySection(
         )
 
         val categories = (recommendations + entries).flatMap { it.categories }.distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-        var expanded by remember { mutableStateOf(false) }
-        androidx.compose.foundation.layout.Box {
-            androidx.compose.material3.TextButton(onClick = { expanded = true }) {
-                Text(category ?: "All categories")
+        val primaryCategories = listOf(null, "Films", "Series", "Adult (18+)", "Live TV", "Anime", "Subtitles")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            primaryCategories.forEach { option ->
+                FilterChip(
+                    selected = category == option,
+                    onClick = { category = option },
+                    label = { Text(option ?: "All") },
+                )
             }
-            androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                (listOf<String?>(null) + categories).forEach { option ->
-                    androidx.compose.material3.DropdownMenuItem(
-                        text = { Text(option ?: "All categories") },
-                        onClick = { category = option; expanded = false },
-                    )
+        }
+
+        val moreCategories = categories.filter { it !in primaryCategories }
+        if (moreCategories.isNotEmpty()) {
+            var expanded by remember { mutableStateOf(false) }
+            androidx.compose.foundation.layout.Box {
+                androidx.compose.material3.TextButton(onClick = { expanded = true }) {
+                    Text(category?.takeIf { it in moreCategories } ?: "More categories")
+                }
+                androidx.compose.material3.DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    moreCategories.forEach { option ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                category = option
+                                expanded = false
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -179,7 +197,7 @@ internal fun AddonDirectorySection(
 
         if (!loading && matches.isEmpty() && error == null) {
             Text(
-                text = "No addons found. Try another search.",
+                text = "No addons match this category and search.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

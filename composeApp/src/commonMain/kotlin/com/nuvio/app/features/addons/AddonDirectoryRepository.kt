@@ -129,15 +129,17 @@ internal object AddonDirectoryRepository {
             val label = tag.asObject()?.string("name") ?: tag.jsonPrimitiveOrNull()?.contentOrNull
             label?.trim()?.takeIf { it.isNotEmpty() }?.let { add(contentLabel(it)) }
         }
-        for (type in manifest?.get("types").asArray()) {
-            when (type.jsonPrimitiveOrNull()?.contentOrNull) {
+        val catalogs = manifest?.get("catalogs").asArray().mapNotNull { it.asObject() }
+        val declaredTypes = manifest?.get("types").asArray().mapNotNull { it.jsonPrimitiveOrNull()?.contentOrNull }
+        for (type in declaredTypes + catalogs.map { it.string("type") }) {
+            when (type.lowercase()) {
                 "movie" -> add("Films")
                 "series" -> add("Series")
                 "tv", "channel" -> add("Live TV")
             }
         }
-        for (catalog in manifest?.get("catalogs").asArray()) {
-            for (extra in catalog.asObject()?.get("extra").asArray()) {
+        for (catalog in catalogs) {
+            for (extra in catalog["extra"].asArray()) {
                 val filter = extra.asObject() ?: continue
                 if (!filter.string("name").equals("genre", ignoreCase = true)) continue
                 for (option in filter["options"].asArray()) {

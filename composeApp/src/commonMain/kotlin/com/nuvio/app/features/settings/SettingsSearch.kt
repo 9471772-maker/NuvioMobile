@@ -473,6 +473,12 @@ internal fun settingsSearchEntries(
         ),
     )
     addPage(
+        page = SettingsPage.InstalledAddons,
+        key = "installed-addons",
+        title = stringResource(Res.string.addons_section_installed),
+        description = stringResource(Res.string.settings_content_discovery_installed_addons_description),
+    )
+    addPage(
         page = SettingsPage.MediaServers,
         key = "media-servers",
         title = stringResource(Res.string.compose_settings_page_media_servers),

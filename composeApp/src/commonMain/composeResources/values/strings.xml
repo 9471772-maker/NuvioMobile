@@ -72,6 +72,7 @@
     <string name="addons_overview_catalogs">Catalogs</string>
     <string name="addons_refresh">Refresh addon</string>
     <string name="addons_section_add_addon">Add Addon</string>
+    <string name="settings_content_discovery_installed_addons_description">View and manage addons installed on this profile.</string>
     <string name="addons_section_installed">Installed Addons</string>
     <string name="addons_section_overview">Overview</string>
     <string name="addons_summary_id_rules">%1$d id rules</string>

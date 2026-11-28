@@ -7,6 +7,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.search.SearchHistoryRepository
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.addons_section_installed
+import nuvio.composeapp.generated.resources.settings_content_discovery_installed_addons_description
 import nuvio.composeapp.generated.resources.compose_settings_page_addons
 import nuvio.composeapp.generated.resources.compose_settings_page_media_servers
 import nuvio.composeapp.generated.resources.compose_settings_page_plugins
@@ -24,6 +26,7 @@ internal fun LazyListScope.contentDiscoveryContent(
     isTablet: Boolean,
     showPluginsEntry: Boolean,
     onAddonsClick: () -> Unit,
+    onInstalledAddonsClick: () -> Unit,
     onPluginsClick: () -> Unit,
     onMediaServersClick: () -> Unit,
 ) {
@@ -66,6 +69,12 @@ internal fun LazyListScope.contentDiscoveryContent(
                     ),
                     isTablet = isTablet,
                     onClick = onAddonsClick,
+                )
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.addons_section_installed),
+                    description = stringResource(Res.string.settings_content_discovery_installed_addons_description),
+                    isTablet = isTablet,
+                    onClick = onInstalledAddonsClick,
                 )
                 SettingsNavigationRow(
                     title = stringResource(Res.string.compose_settings_page_media_servers),

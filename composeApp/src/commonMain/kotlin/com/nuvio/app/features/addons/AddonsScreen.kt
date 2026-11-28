@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,15 +91,14 @@ internal fun AddonsSettingsPageContent(
     }
 
     val uiState by AddonRepository.uiState.collectAsStateWithLifecycle()
-    val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     var addonUrl by rememberSaveable { mutableStateOf("") }
+    var showManualInstall by rememberSaveable { mutableStateOf(false) }
     var bulkAddonUrls by rememberSaveable { mutableStateOf("") }
     var bulkImporting by remember { mutableStateOf(false) }
     var bulkImportSummary by remember { mutableStateOf<String?>(null) }
     var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var installModalState by remember { mutableStateOf<AddonInstallModalState?>(null) }
-    var addonPendingDeletionUrl by rememberSaveable { mutableStateOf<String?>(null) }
     val enterAddonUrlMessage = stringResource(Res.string.addons_error_enter_url)
     val duplicateAddonMessage = stringResource(Res.string.addon_already_installed)
     val usePersonalMediaCopy = AppFeaturePolicy.personalMediaAddonCopyEnabled
@@ -109,42 +109,106 @@ internal fun AddonsSettingsPageContent(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SectionHeader(stringResource(Res.string.addons_section_overview))
-        OverviewCard(overview = overview)
+        TextButton(onClick = { showManualInstall = !showManualInstall }) {
+            Text(stringResource(if (showManualInstall) Res.string.action_close else Res.string.addons_section_add_addon))
+        }
+        if (showManualInstall) {
+            SectionHeader(stringResource(Res.string.addons_section_overview))
+            OverviewCard(overview = overview)
 
-        SectionHeader(stringResource(Res.string.addons_section_add_addon))
-        AddAddonCard(
-            addonUrl = addonUrl,
-            formMessage = formMessage,
-            usePersonalMediaCopy = usePersonalMediaCopy,
-            onAddonUrlChange = {
-                addonUrl = it
-                formMessage = null
-            },
-            onAddClick = {
-                val requestedUrl = addonUrl.trim()
-                if (requestedUrl.isBlank()) {
-                    formMessage = enterAddonUrlMessage
-                    return@AddAddonCard
-                }
+            SectionHeader(stringResource(Res.string.addons_section_add_addon))
+            AddAddonCard(
+                addonUrl = addonUrl,
+                formMessage = formMessage,
+                usePersonalMediaCopy = usePersonalMediaCopy,
+                onAddonUrlChange = {
+                    addonUrl = it
+                    formMessage = null
+                },
+                onAddClick = {
+                    val requestedUrl = addonUrl.trim()
+                    if (requestedUrl.isBlank()) {
+                        formMessage = enterAddonUrlMessage
+                        return@AddAddonCard
+                    }
 
-                formMessage = null
-                installModalState = AddonInstallModalState.Checking
-                coroutineScope.launch {
-                    val result = AddonRepository.addAddon(requestedUrl)
-                    installModalState = when (result) {
-                        is AddAddonResult.Success -> {
-                            addonUrl = ""
-                            AddonInstallModalState.Success(result.manifest.name)
-                        }
+                    formMessage = null
+                    installModalState = AddonInstallModalState.Checking
+                    coroutineScope.launch {
+                        val result = AddonRepository.addAddon(requestedUrl)
+                        installModalState = when (result) {
+                            is AddAddonResult.Success -> {
+                                addonUrl = ""
+                                AddonInstallModalState.Success(result.manifest.name)
+                            }
 
-                        is AddAddonResult.Error -> {
-                            AddonInstallModalState.Error(result.message)
+                            is AddAddonResult.Error -> {
+                                AddonInstallModalState.Error(result.message)
+                            }
                         }
                     }
-                }
-            },
-        )
+                },
+            )
+
+            BulkAddonImportCard(
+                urls = bulkAddonUrls,
+                importing = bulkImporting,
+                summary = bulkImportSummary,
+                onUrlsChange = {
+                    bulkAddonUrls = it
+                    bulkImportSummary = null
+                },
+                onImportClick = {
+                    val urls = bulkAddonUrls
+                        .split(',', '\n', '\r')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+
+                    if (urls.isNotEmpty() && !bulkImporting) {
+                        bulkImporting = true
+                        bulkImportSummary = null
+
+                        coroutineScope.launch {
+                            var installed = 0
+                            var skipped = 0
+                            val failures = mutableListOf<String>()
+
+                            try {
+                                for (url in urls) {
+                                    when (val result = AddonRepository.addAddon(url)) {
+                                        is AddAddonResult.Success -> installed++
+                                        is AddAddonResult.Error -> {
+                                            if (result.message == duplicateAddonMessage) {
+                                                skipped++
+                                            } else {
+                                                failures += "$url: ${result.message}"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                bulkImportSummary = buildString {
+                                    append("Import complete: $installed installed, ")
+                                    append("$skipped duplicates skipped, ${failures.size} failed.")
+                                    failures.take(5).forEach { failure ->
+                                        append('\n')
+                                        append(failure)
+                                    }
+                                    if (failures.size > 5) {
+                                        append('\n')
+                                        append("And ${failures.size - 5} more failures.")
+                                    }
+                                }
+                                if (installed > 0) bulkAddonUrls = ""
+                            } finally {
+                                bulkImporting = false
+                            }
+                        }
+                    }
+                },
+            )
+        }
 
         AddonDirectorySection(
             installedUrls = uiState.addons.map { it.manifestUrl }.toSet(),
@@ -164,66 +228,52 @@ internal fun AddonsSettingsPageContent(
             },
         )
 
-        BulkAddonImportCard(
-            urls = bulkAddonUrls,
-            importing = bulkImporting,
-            summary = bulkImportSummary,
-            onUrlsChange = {
-                bulkAddonUrls = it
-                bulkImportSummary = null
-            },
-            onImportClick = {
-                val urls = bulkAddonUrls
-                    .split(',', '\n', '\r')
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
+    }
 
-                if (urls.isNotEmpty() && !bulkImporting) {
-                    bulkImporting = true
-                    bulkImportSummary = null
-
-                    coroutineScope.launch {
-                        var installed = 0
-                        var skipped = 0
-                        val failures = mutableListOf<String>()
-
-                        try {
-                            for (url in urls) {
-                                when (val result = AddonRepository.addAddon(url)) {
-                                    is AddAddonResult.Success -> installed++
-                                    is AddAddonResult.Error -> {
-                                        if (result.message == duplicateAddonMessage) {
-                                            skipped++
-                                        } else {
-                                            failures += "$url: ${result.message}"
-                                        }
-                                    }
-                                }
-                            }
-
-                            bulkImportSummary = buildString {
-                                append("Import complete: $installed installed, ")
-                                append("$skipped duplicates skipped, ${failures.size} failed.")
-                                failures.take(5).forEach { failure ->
-                                    append('\n')
-                                    append(failure)
-                                }
-                                if (failures.size > 5) {
-                                    append('\n')
-                                    append("And ${failures.size - 5} more failures.")
-                                }
-                            }
-                            if (installed > 0) bulkAddonUrls = ""
-                        } finally {
-                            bulkImporting = false
-                        }
-                    }
+    val modalState = installModalState
+    if (modalState != null) {
+        val modalTitle = when (modalState) {
+            AddonInstallModalState.Checking -> stringResource(Res.string.addons_modal_checking_title)
+            is AddonInstallModalState.Success -> stringResource(Res.string.addons_modal_success_title)
+            is AddonInstallModalState.Error -> stringResource(Res.string.addons_modal_failure_title)
+        }
+        val modalMessage = when (modalState) {
+            AddonInstallModalState.Checking -> stringResource(Res.string.addons_modal_checking_message)
+            is AddonInstallModalState.Success -> stringResource(
+                Res.string.addons_modal_success_message,
+                modalState.addonName,
+            )
+            is AddonInstallModalState.Error -> modalState.reason
+        }
+        val modalConfirmText = when (modalState) {
+            AddonInstallModalState.Checking -> stringResource(Res.string.addon_installing)
+            is AddonInstallModalState.Success -> stringResource(Res.string.action_done)
+            is AddonInstallModalState.Error -> stringResource(Res.string.action_close)
+        }
+        NuvioStatusModal(
+            title = modalTitle,
+            message = modalMessage,
+            isVisible = true,
+            isBusy = modalState.isBusy,
+            confirmText = modalConfirmText,
+            onConfirm = {
+                if (!modalState.isBusy) {
+                    installModalState = null
                 }
             },
         )
+    }
+}
 
-        SectionHeader(stringResource(Res.string.addons_section_installed))
+@Composable
+internal fun InstalledAddonsPageContent(modifier: Modifier = Modifier) {
+    LaunchedEffect(Unit) { AddonRepository.initialize() }
+    val uiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
+    val usePersonalMediaCopy = AppFeaturePolicy.personalMediaAddonCopyEnabled
+    var addonPendingDeletionUrl by rememberSaveable { mutableStateOf<String?>(null) }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (uiState.addons.isEmpty()) {
             EmptyStateCard(usePersonalMediaCopy = usePersonalMediaCopy)
         } else {
@@ -283,40 +333,6 @@ internal fun AddonsSettingsPageContent(
                 addonPendingDeletionUrl = null
             },
             onDismiss = { addonPendingDeletionUrl = null },
-        )
-    }
-
-    val modalState = installModalState
-    if (modalState != null) {
-        val modalTitle = when (modalState) {
-            AddonInstallModalState.Checking -> stringResource(Res.string.addons_modal_checking_title)
-            is AddonInstallModalState.Success -> stringResource(Res.string.addons_modal_success_title)
-            is AddonInstallModalState.Error -> stringResource(Res.string.addons_modal_failure_title)
-        }
-        val modalMessage = when (modalState) {
-            AddonInstallModalState.Checking -> stringResource(Res.string.addons_modal_checking_message)
-            is AddonInstallModalState.Success -> stringResource(
-                Res.string.addons_modal_success_message,
-                modalState.addonName,
-            )
-            is AddonInstallModalState.Error -> modalState.reason
-        }
-        val modalConfirmText = when (modalState) {
-            AddonInstallModalState.Checking -> stringResource(Res.string.addon_installing)
-            is AddonInstallModalState.Success -> stringResource(Res.string.action_done)
-            is AddonInstallModalState.Error -> stringResource(Res.string.action_close)
-        }
-        NuvioStatusModal(
-            title = modalTitle,
-            message = modalMessage,
-            isVisible = true,
-            isBusy = modalState.isBusy,
-            confirmText = modalConfirmText,
-            onConfirm = {
-                if (!modalState.isBusy) {
-                    installModalState = null
-                }
-            },
         )
     }
 }

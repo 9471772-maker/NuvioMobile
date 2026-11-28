@@ -176,6 +176,11 @@ internal enum class SettingsPage(
         category = SettingsCategory.Watch,
         parentPage = ContentDiscovery,
     ),
+    InstalledAddons(
+        titleRes = Res.string.addons_section_installed,
+        category = SettingsCategory.Watch,
+        parentPage = ContentDiscovery,
+    ),
     Plugins(
         titleRes = Res.string.compose_settings_page_plugins,
         category = SettingsCategory.Watch,
@@ -256,7 +261,7 @@ internal val SettingsPage.icon: ImageVector
         SettingsPage.ContinueWatching -> Icons.Default.History
         SettingsPage.PosterCustomization -> Icons.Default.RoundedCorner
         SettingsPage.ContentDiscovery -> Icons.Default.Explore
-        SettingsPage.Addons -> Icons.Default.Extension
+        SettingsPage.Addons, SettingsPage.InstalledAddons -> Icons.Default.Extension
         SettingsPage.Plugins -> Icons.Default.Power
         SettingsPage.MediaServers -> Icons.Default.Dns
         SettingsPage.MediaServer -> Icons.Default.Dns
