@@ -44,5 +44,103 @@
     "categories": [
       "Subtitles"
     ]
+  },
+  {
+    "manifestUrl": "https://prostopadla.github.io/balkan-tv-stremio/manifest.json",
+    "manifest": {
+      "name": "Balkan TV",
+      "description": "Live television channels from the Balkans."
+    },
+    "categories": [
+      "Live TV",
+      "Catalogs"
+    ]
+  },
+  {
+    "manifestUrl": "https://stremio-addon-desi.vercel.app/manifest.json",
+    "manifest": {
+      "name": "Desi Movies & K-Dramas",
+      "description": "Discover South Asian films and Korean dramas."
+    },
+    "categories": [
+      "Films",
+      "Series",
+      "Korean drama",
+      "Catalogs"
+    ]
+  },
+  {
+    "manifestUrl": "https://historicalpoint-stremio.vercel.app/manifest.json",
+    "manifest": {
+      "name": "Historical Point",
+      "description": "Turkish historical dramas with Urdu subtitles."
+    },
+    "categories": [
+      "Series",
+      "Historical drama",
+      "Catalogs"
+    ]
+  },
+  {
+    "manifestUrl": "https://stremio-indian-catalogue.vercel.app/manifest.json",
+    "manifest": {
+      "name": "Indian Catalogue",
+      "description": "Browse Indian cinema by catalog."
+    },
+    "categories": [
+      "Films",
+      "Indian cinema",
+      "Catalogs",
+      "Series"
+    ]
+  },
+  {
+    "manifestUrl": "https://4si8.github.io/road-to-doomsday/manifest.json",
+    "manifest": {
+      "name": "Road to Doomsday",
+      "description": "Follow a Marvel watch order leading up to Avengers: Doomsday."
+    },
+    "categories": [
+      "Watch orders",
+      "Marvel",
+      "Catalogs"
+    ]
+  },
+  {
+    "manifestUrl": "https://tfi-movies.vercel.app/manifest.json",
+    "manifest": {
+      "name": "TFI Movies",
+      "description": "Discover Telugu films and web series on streaming services."
+    },
+    "categories": [
+      "Films",
+      "Series",
+      "Telugu",
+      "Catalogs"
+    ]
+  },
+  {
+    "manifestUrl": "https://bytezz.github.io/thoughtmaybe-stremio/manifest.json",
+    "manifest": {
+      "name": "Thought Maybe Library",
+      "description": "Browse documentaries from the Thought Maybe video library."
+    },
+    "categories": [
+      "Documentaries",
+      "Catalogs",
+      "Films",
+      "Series"
+    ]
+  },
+  {
+    "manifestUrl": "https://tv-br-unificada.vercel.app/manifest.json",
+    "manifest": {
+      "name": "TV BR Unificada",
+      "description": "Browse Brazilian live television channels."
+    },
+    "categories": [
+      "Live TV",
+      "Catalogs"
+    ]
   }
 ]
