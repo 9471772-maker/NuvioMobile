@@ -214,5 +214,18 @@
       "Catalogs"
     ],
     "nsfw": true
+  },
+  {
+    "manifestUrl": "https://krx18.com/tag/philippines-movie-18/manifest.json",
+    "manifest": {
+      "name": "Philippines Films (18+)",
+      "description": "Browse the website’s Philippines film catalog and open individual films on the website."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Films",
+      "Catalogs"
+    ],
+    "nsfw": true
   }
 ]

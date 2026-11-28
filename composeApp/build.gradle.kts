@@ -408,7 +408,6 @@ kotlin {
                 implementation(libs.ktor.client.darwin)
                 if (iosDistribution == "full") {
                     implementation(libs.quickjs.kt)
-                    implementation(libs.ksoup)
                 }
             }
         }
@@ -483,7 +482,6 @@ kotlin {
                 implementation(files(torrentEngineAar).builtBy(prepareTorrentEngineAndroid))
                 if (androidDistribution == "full") {
                     implementation(files("libs/quickjs-kt-android-1.0.5-nuvio.aar"))
-                    implementation(libs.ksoup)
                 }
             }
         }
@@ -500,6 +498,7 @@ kotlin {
             }
         }
         commonMain.dependencies {
+            implementation(libs.ksoup)
             implementation("io.coil-kt.coil3:coil-compose:${libs.versions.coil.get()}") {
                 exclude(group = "org.jetbrains.skiko", module = "skiko")
             }
