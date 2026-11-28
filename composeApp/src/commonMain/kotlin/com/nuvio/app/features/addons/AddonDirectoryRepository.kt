@@ -102,6 +102,7 @@ internal object AddonDirectoryRepository {
         }
 
         val manifest = this["manifest"].asObject()
+        val labels = categoryLabels()
         return AddonDirectoryEntry(
             manifestUrl = manifestUrl,
             name = manifest?.string("name")
@@ -110,23 +111,34 @@ internal object AddonDirectoryRepository {
             description = manifest?.string("description").orEmpty(),
             logoUrl = manifest?.string("logo")?.takeIf(String::isNotBlank),
             stars = int("stars"),
-            isNsfw = boolean("nsfw"),
-            categories = (inherited + categoryLabels()).distinctBy { it.lowercase() }.ifEmpty { listOf("Other") },
+            isNsfw = boolean("nsfw") || "Adult (18+)" in inherited || "Adult (18+)" in labels,
+            categories = (inherited + labels).distinctBy { it.lowercase() }.ifEmpty { listOf("Other") },
             isAlternativeInstance = isAlternativeInstance,
         )
     }
 
     private fun JsonObject.categoryLabels(): List<String> = buildList {
         val manifest = this@categoryLabels["manifest"].asObject()
+        if (this@categoryLabels.boolean("nsfw")) add("Adult (18+)")
         for (tag in this@categoryLabels["categories"].asArray()) {
             val label = tag.asObject()?.string("name") ?: tag.jsonPrimitiveOrNull()?.contentOrNull
-            label?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it.replaceFirstChar(Char::uppercase)) }
+            label?.trim()?.takeIf { it.isNotEmpty() }?.let { add(contentLabel(it)) }
         }
         for (type in manifest?.get("types").asArray()) {
             when (type.jsonPrimitiveOrNull()?.contentOrNull) {
-                "movie" -> add("Movies")
-                "series" -> add("TV shows")
+                "movie" -> add("Films")
+                "series" -> add("Series")
                 "tv", "channel" -> add("Live TV")
+            }
+        }
+        for (catalog in manifest?.get("catalogs").asArray()) {
+            for (extra in catalog.asObject()?.get("extra").asArray()) {
+                val filter = extra.asObject() ?: continue
+                if (!filter.string("name").equals("genre", ignoreCase = true)) continue
+                for (option in filter["options"].asArray()) {
+                    val genre = option.jsonPrimitiveOrNull()?.contentOrNull?.trim().orEmpty()
+                    if (genre.isNotEmpty()) add(contentLabel(genre))
+                }
             }
         }
         for (resource in manifest?.get("resources").asArray()) {
@@ -137,6 +149,14 @@ internal object AddonDirectoryRepository {
                 "subtitles" -> add("Subtitles")
             }
         }
+    }
+
+    private fun contentLabel(label: String): String = when (label.lowercase()) {
+        "adult", "nsfw", "18+", "adult (18+)" -> "Adult (18+)"
+        "movies", "movie", "film", "films" -> "Films"
+        "tv shows", "tv series", "series" -> "Series"
+        "live tv" -> "Live TV"
+        else -> label.replaceFirstChar(Char::uppercase)
     }
 
     private fun JsonObject.string(key: String): String =

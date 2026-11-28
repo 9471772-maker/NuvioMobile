@@ -6,7 +6,7 @@
       "description": "Torrent streams for classic films."
     },
     "categories": [
-      "Movies",
+      "Films",
       "Torrents",
       "Catalogs"
     ]
@@ -18,7 +18,7 @@
       "description": "Find Internet Archive streams for supported movies."
     },
     "categories": [
-      "Movies",
+      "Films",
       "Streams"
     ]
   },
@@ -29,8 +29,8 @@
       "description": "Movie and series catalogs, episode lists and metadata."
     },
     "categories": [
-      "Movies",
-      "TV shows",
+      "Films",
+      "Series",
       "Catalogs",
       "Metadata"
     ]
