@@ -119,7 +119,7 @@ internal fun AddonDirectorySection(
         val matches = remember(entries, recommendations, category) {
             (recommendations + entries)
                 .filter { entry -> category == null || entry.categories.any { it.equals(category, ignoreCase = true) } }
-                .distinctBy { it.manifestUrl }
+                .distinctBy { it.setupUrl ?: it.manifestUrl }
                 .sortedWith(compareBy<AddonDirectoryEntry>(
                     { it.name.dropWhile { char -> !char.isLetterOrDigit() }.lowercase() },
                     { it.name.lowercase() },
@@ -304,17 +304,27 @@ private fun AddonDirectoryEntryCard(
 
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = entry.manifestUrl,
+            text = entry.setupUrl ?: entry.manifestUrl,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
 
-        NuvioPrimaryButton(
-            text = if (installed) "Installed" else "Install addon",
-            enabled = !installed,
-            onClick = onInstall,
-        )
+        val setupUrl = entry.setupUrl
+        val uriHandler = LocalUriHandler.current
+        if (setupUrl != null) {
+            NuvioPrimaryButton(
+                text = "Open setup guide",
+                enabled = true,
+                onClick = { uriHandler.openUri(setupUrl) },
+            )
+        } else {
+            NuvioPrimaryButton(
+                text = if (installed) "Installed" else "Install addon",
+                enabled = !installed,
+                onClick = onInstall,
+            )
+        }
     }
 }

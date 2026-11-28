@@ -23,6 +23,7 @@ internal data class AddonDirectoryEntry(
     val isNsfw: Boolean,
     val categories: List<String>,
     val isAlternativeInstance: Boolean,
+    val setupUrl: String? = null,
 )
 
 internal data class AddonDirectoryPage(
@@ -45,7 +46,7 @@ internal object AddonDirectoryRepository {
     suspend fun recommended(): List<AddonDirectoryEntry> {
         val bytes = Res.readBytes("files/recommended-addons.json")
         return json.parseToJsonElement(bytes.decodeToString()).jsonArray.mapNotNull {
-            it.asObject()?.toDirectoryEntry(false)
+            it.asObject()?.let { row -> row.toDirectoryEntry(false, setupUrl = row.string("setupUrl").takeIf { url -> url.startsWith("https://") }) }
         }
     }
 
@@ -95,9 +96,10 @@ internal object AddonDirectoryRepository {
     private fun JsonObject.toDirectoryEntry(
         isAlternativeInstance: Boolean,
         inherited: List<String> = emptyList(),
+        setupUrl: String? = null,
     ): AddonDirectoryEntry? {
         val manifestUrl = string("manifestUrl").trim()
-        if (!manifestUrl.startsWith("https://") && !manifestUrl.startsWith("http://")) {
+        if (setupUrl == null && !manifestUrl.startsWith("https://") && !manifestUrl.startsWith("http://")) {
             return null
         }
 
@@ -105,6 +107,7 @@ internal object AddonDirectoryRepository {
         val labels = categoryLabels()
         return AddonDirectoryEntry(
             manifestUrl = manifestUrl,
+            setupUrl = setupUrl,
             name = manifest?.string("name")
                 ?.takeIf(String::isNotBlank)
                 ?: string("slug").ifBlank { manifestUrl.substringAfterLast('/').ifBlank { "Addon" } },

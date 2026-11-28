@@ -142,5 +142,77 @@
       "Live TV",
       "Catalogs"
     ]
+  },
+  {
+    "manifestUrl": "https://duckurbate.xyz/manifest.json",
+    "manifest": {
+      "name": "Duckurbate",
+      "description": "Live channels from Chaturbate. Public endpoint unverified."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Live TV"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://strip.duckurbate.xyz/manifest.json",
+    "manifest": {
+      "name": "Duckurstrip",
+      "description": "Live channels from Stripchat. Public endpoint unverified."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Live TV"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://bonga.duckurbate.xyz/manifest.json",
+    "manifest": {
+      "name": "Duckurbonga",
+      "description": "Live channels from BongaCams. Public endpoint unverified."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Live TV"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://cam4.duckurbate.xyz/manifest.json",
+    "manifest": {
+      "name": "Duckurcam4",
+      "description": "Live channels from CAM4. Public endpoint unverified."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Live TV"
+    ],
+    "nsfw": true
+  },
+  {
+    "manifestUrl": "https://stremio.moindigital.in/manifest.json",
+    "manifest": {
+      "name": "Stremio Adult Addon with TorBox",
+      "description": "Torrent catalogs with optional TorBox support. Public endpoint unverified."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Torrents"
+    ],
+    "nsfw": true
+  },
+  {
+    "setupUrl": "https://github.com/gdorin85-dotcom/Stremio-adult-hub",
+    "manifest": {
+      "name": "Stremio Adult Hub",
+      "description": "Host the addon, configure a provider feed, then enter your server’s manifest URL in Nuvio."
+    },
+    "categories": [
+      "Adult (18+)",
+      "Catalogs"
+    ],
+    "nsfw": true
   }
 ]
